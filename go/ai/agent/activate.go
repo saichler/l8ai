@@ -99,7 +99,7 @@ func ActivateAgent(cfg AgentConfig, vnic ifs.IVNic) *turn.Agent {
 	a := turn.NewAgent(settings, vnic, c, factory, masking.NewClassifier(cfg.MaskingOverrides), secret,
 		tools.NewWeb(cfg.WebToolsURL))
 
-	// Activated as stateful so the chat instances find it with GetParticipants (DR30).
+	// Activated as stateful (DR30); the chat instances find it in the health records.
 	vnic.Resources().Registry().Register(&turn.Service{})
 	sla := ifs.NewServiceLevelAgreement(&turn.Service{}, aicommon.ChatAgentService, aicommon.ServiceArea, true, nil)
 	sla.SetServiceItem(&l8ai.ChatAgentTurn{})
@@ -118,7 +118,7 @@ func ActivateAgent(cfg AgentConfig, vnic ifs.IVNic) *turn.Agent {
 func refresh(vnic ifs.IVNic, c *catalog.Catalog, factory *llm.Factory, quotaPerMinute int) {
 	for {
 		if quotaPerMinute > 0 {
-			instances := len(vnic.Resources().Services().GetParticipants(aicommon.ChatAgentService, aicommon.ServiceArea))
+			instances := len(aicommon.Participants(vnic.Resources(), aicommon.ChatAgentService))
 			if instances < 1 {
 				instances = 1
 			}

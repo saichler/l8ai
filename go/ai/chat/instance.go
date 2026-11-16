@@ -180,11 +180,7 @@ func (this *Instance) push(cn *l8notify.L8NotificationSet) {
 
 // isFrom reports whether the node is a participant of the given l8ai service.
 func (this *Instance) isFrom(source, serviceName string) bool {
-	if source == "" {
-		return false
-	}
-	_, ok := this.vnic.Resources().Services().GetParticipants(serviceName, aicommon.ServiceArea)[source]
-	return ok
+	return aicommon.IsParticipant(this.vnic.Resources(), serviceName, source)
 }
 
 // fromRouter is true for requests sent by a chat-router replica.

@@ -57,8 +57,9 @@ func ActivateChat(cfg *aicommon.ChatConfig, vnic ifs.IVNic) *Instance {
 // activateService activates one chat instance service. The handler reaches
 // the shared Instance through the SLA arguments. The services are activated as
 // stateful only so that the framework registers this node as a participant:
-// the router finds instances with GetParticipants(ChatShCnv, 81). The instance
-// keeps its own in-memory state; nothing uses the services' leader.
+// the instances publish their services in their health record, which the
+// router reads (common.Participants). The instance keeps its own in-memory
+// state; nothing uses the services' leader.
 func activateService(vnic ifs.IVNic, inst *Instance, handler ifs.IServiceHandler, name string,
 	item, itemList interface{}, primaryKey string) {
 	vnic.Resources().Registry().Register(handler)

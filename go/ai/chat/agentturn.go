@@ -89,7 +89,7 @@ func (this *Instance) dispatchTurn(c *conversation, t *agentTurn) {
 
 // agentFor picks an agent instance by the conversation's hash, for cache affinity.
 func (this *Instance) agentFor(conversationId string, offset int) string {
-	participants := this.vnic.Resources().Services().GetParticipants(aicommon.ChatAgentService, aicommon.ServiceArea)
+	participants := aicommon.Participants(this.vnic.Resources(), aicommon.ChatAgentService)
 	if len(participants) == 0 {
 		return ""
 	}

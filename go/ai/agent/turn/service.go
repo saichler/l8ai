@@ -46,7 +46,7 @@ func (this *Service) Activate(sla *ifs.ServiceLevelAgreement, vnic ifs.IVNic) er
 
 func (this *Service) PostMessage(pb ifs.IElements, vnic ifs.IVNic, msg *ifs.Message) ifs.IElements {
 	source := msg.Source()
-	if _, ok := vnic.Resources().Services().GetParticipants(aicommon.ChatShMsgService, aicommon.ServiceArea)[source]; !ok {
+	if !aicommon.IsParticipant(vnic.Resources(), aicommon.ChatShMsgService, source) {
 		return object.NewError("ChatAgent: turns are accepted only from a chat instance")
 	}
 	aaaId := msg.AAAId() // copied: the message is valid only during this call

@@ -75,7 +75,7 @@ func (this *Router) ownerOf(conversationId string) string {
 
 // instances returns the chat instances that can take conversations, sorted.
 func (this *Router) instances() []string {
-	participants := this.vnic.Resources().Services().GetParticipants(aicommon.ChatShCnvService, aicommon.ServiceArea)
+	participants := aicommon.Participants(this.vnic.Resources(), aicommon.ChatShCnvService)
 	this.mtx.Lock()
 	defer this.mtx.Unlock()
 	result := make([]string, 0, len(participants))
@@ -90,7 +90,7 @@ func (this *Router) instances() []string {
 
 // allInstances returns every chat instance, including releasing ones (reads).
 func (this *Router) allInstances() []string {
-	participants := this.vnic.Resources().Services().GetParticipants(aicommon.ChatShCnvService, aicommon.ServiceArea)
+	participants := aicommon.Participants(this.vnic.Resources(), aicommon.ChatShCnvService)
 	result := make([]string, 0, len(participants))
 	for id := range participants {
 		result = append(result, id)
