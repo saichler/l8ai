@@ -160,7 +160,8 @@ func (this *Router) reassignLost(lost string) {
 // coldStart assigns every conversation in chat-orm to the instances when the
 // index is empty, sending each instance its headers in batches (plan §4.3).
 // Pages are read by key ("conversationId > last"), so no offset paging is used.
-func (this *Router) coldStart() {
+// Returns false when chat-orm could not be read; the monitor retries.
+func (this *Router) coldStart() bool {
 	last := ""
 	total := 0
 	for {
@@ -172,7 +173,7 @@ func (this *Router) coldStart() {
 		elems, err := aicommon.LeaderGet(this.vnic, aicommon.ChatCnvDbService, query, this.cfg.ReadTimeoutSeconds)
 		if err != nil {
 			this.vnic.Resources().Logger().Error("router: cold start: ", err.Error())
-			return
+			return false
 		}
 		this.assignHeaders(elems)
 		for _, e := range elems {
@@ -186,6 +187,7 @@ func (this *Router) coldStart() {
 		}
 	}
 	this.vnic.Resources().Logger().Info("router: cold start assigned ", total, " conversations")
+	return true
 }
 
 // assignHeaders assigns one page of headers and sends each owner its share.
@@ -244,11 +246,10 @@ func (this *Router) monitorTick() {
 	if becameLeader {
 		this.rebuildCounts()
 	}
+	// The cold start skips conversations already in the index, so it is
+	// safe to run while new conversations are being created.
 	if !this.coldStarted && len(current) > 0 {
-		if this.idx.Size() == 0 {
-			this.coldStart()
-		}
-		this.coldStarted = true
+		this.coldStarted = this.coldStart()
 	}
 	this.mtx.Lock()
 	lost := make([]string, 0)
