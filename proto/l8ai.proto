@@ -93,6 +93,7 @@ message ChatConversation {
   string agent_turn_id = 16;
   l8common.AuditInfo audit_info = 17;
   int64 notif_seq = 18;              // per-conversation notification sequence, in memory only (not persisted)
+  int64 expected_summary_up_to_seq = 19; // compaction compare-and-set (agent -> owner); never stored
 }
 
 message ChatConversationList {

@@ -73,8 +73,17 @@ func (this *conversationsService) PutMessage(pb ifs.IElements, vnic ifs.IVNic, m
 
 func (this *conversationsService) PatchMessage(pb ifs.IElements, vnic ifs.IVNic, msg *ifs.Message) (resp ifs.IElements) {
 	defer guard(vnic, &resp)
+	if this.inst.fromAgent(msg) {
+		// A ChatAgent instance's compaction result (plan §7.5).
+		for _, e := range pb.Elements() {
+			if v, ok := e.(*l8ai.ChatConversation); ok && v != nil {
+				this.inst.applyCompaction(v)
+			}
+		}
+		return object.New(nil, &l8web.L8Empty{})
+	}
 	if !this.inst.fromRouter(msg) {
-		return object.NewError("chat: conversations are accepted only from the router")
+		return object.NewError("chat: conversations are accepted only from the router or a ChatAgent instance")
 	}
 	userId, err := this.inst.requester(msg)
 	if err != nil {
@@ -271,6 +280,25 @@ func (this *Instance) updateConversation(v *l8ai.ChatConversation, userId string
 		this.publishHeader(c, false)
 	}
 	return nil
+}
+
+// applyCompaction stores a compacted summary only if the conversation's
+// summary position is still the one the compaction started from
+// (compare-and-set): of two racing compactions, the later one is discarded.
+func (this *Instance) applyCompaction(v *l8ai.ChatConversation) {
+	c := this.conversation(v.ConversationId)
+	if c == nil {
+		return
+	}
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+	if v.ExpectedSummaryUpToSeq != c.header.SummaryUpToSeq || v.SummaryUpToSeq <= c.header.SummaryUpToSeq ||
+		v.SummaryUpToSeq > c.header.LastSeq || v.Summary == "" {
+		return
+	}
+	c.header.Summary = v.Summary
+	c.header.SummaryUpToSeq = v.SummaryUpToSeq
+	this.publishHeader(c, false)
 }
 
 // updateGroupMembers applies a group's new member list to every owned
