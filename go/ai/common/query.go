@@ -16,6 +16,7 @@
 package common
 
 import (
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -32,10 +33,10 @@ func CriteriaValue(q ifs.IQuery, field, op string) (string, bool) {
 }
 
 func expressionValue(expr ifs.IExpression, field, op string) (string, bool) {
-	for expr != nil {
-		for cond := expr.Condition(); cond != nil; cond = cond.Next() {
+	for !isNil(expr) {
+		for cond := expr.Condition(); !isNil(cond); cond = cond.Next() {
 			comp := cond.Comparator()
-			if comp == nil {
+			if isNil(comp) {
 				continue
 			}
 			if strings.ToLower(comp.Left()) == field && strings.TrimSpace(comp.Operator()) == op {
@@ -48,6 +49,16 @@ func expressionValue(expr ifs.IExpression, field, op string) (string, bool) {
 		expr = expr.Next()
 	}
 	return "", false
+}
+
+// isNil is true for a nil interface and for an interface holding a nil
+// pointer: the query interpreter returns typed nils (e.g. a nil *Condition).
+func isNil(v interface{}) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	return rv.Kind() == reflect.Ptr && rv.IsNil()
 }
 
 // CriteriaList returns the values of a "<field> in [a,b,c]" comparator.
@@ -85,14 +96,12 @@ func PQueryOf(pb ifs.IElements) *l8api.L8Query {
 	return nil
 }
 
-// PlainQuery returns a copy of the structured query without its live
-// registration, so a read can be passed on (e.g. to chat-orm) without
-// registering it there. The text is dropped as well: it may carry the
-// "register" keyword, and the receiver uses the structured form when the
-// text is empty.
+// PlainQuery returns a copy of the query without its live registration, so a
+// read can be passed on (e.g. to chat-orm) without registering it there. The
+// text is kept: the receiver parses it (an empty text is not read as a query),
+// and clients send the registration as fields, not in the text.
 func PlainQuery(q *l8api.L8Query) *l8api.L8Query {
 	c := proto.Clone(q).(*l8api.L8Query)
-	c.Text = ""
 	c.Register = l8api.L8Register_L8_REGISTER_INVALID
 	c.RegisterId = ""
 	c.AaaId = ""

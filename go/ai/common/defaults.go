@@ -39,6 +39,7 @@ const (
 const (
 	ChatRouterGroup = "ChatRtr"
 	ChatUsersGroup  = "ChatUsr"
+	ChatOrmGroup    = "ChatOrm"
 )
 
 // Chat router (internal).

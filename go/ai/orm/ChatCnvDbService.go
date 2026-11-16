@@ -26,5 +26,8 @@ func activateChatCnvDb(creds, dbname string, vnic ifs.IVNic) {
 	sla := l8c.NewOrmSLA(aicommon.ChatCnvDbService, aicommon.ServiceArea, "ConversationId", newChatCnvDbCallback(),
 		&l8ai.ChatConversation{}, &l8ai.ChatConversationList{})
 	sla.SetReplicationCount(1)
+	// NewOrmSLA puts every ORM service in the shared L8SG group, whose leader may
+	// be another project's ORM node; leader requests to chat-orm must reach it.
+	sla.SetServiceGroup(aicommon.ChatOrmGroup)
 	l8c.ActivateService(sla, creds, dbname, vnic)
 }
