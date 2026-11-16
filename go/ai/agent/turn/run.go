@@ -53,15 +53,18 @@ func (this *Agent) run(t *l8ai.ChatAgentTurn, source, aaaId string) {
 	defer this.end(t.TurnId)
 	this.slots <- struct{}{}
 	defer func() { <-this.slots }()
+	r := &turnRun{turn: t, source: source, aaaId: aaaId}
 	defer func() {
-		if r := recover(); r != nil {
-			this.vnic.Resources().Logger().Error("ChatAgent: turn ", t.TurnId, " panicked: ", r, "\n", string(debug.Stack()))
+		// A turn that cannot finish ends now with a SYSTEM message, instead of
+		// waiting for the owner's watchdog.
+		if p := recover(); p != nil {
+			this.vnic.Resources().Logger().Error("ChatAgent: turn ", t.TurnId, " panicked: ", p, "\n", string(debug.Stack()))
+			this.reply(r, l8ai.ChatMessageKind_CHAT_MESSAGE_KIND_SYSTEM, failedText)
 		}
 	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), this.settings.Chat.AgentTurnTimeout)
 	defer cancel()
-	r := &turnRun{turn: t, source: source, aaaId: aaaId}
 
 	if _, _, err := this.vnic.Resources().Security().UserInfo(aaaId, this.vnic); err != nil {
 		this.reply(r, l8ai.ChatMessageKind_CHAT_MESSAGE_KIND_SYSTEM, sessionExpiredText)
