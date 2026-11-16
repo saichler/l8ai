@@ -73,13 +73,20 @@ type AgentConfig struct {
 	Chat *aicommon.ChatConfig
 }
 
+// CallRegisterModels registers the adopter's models on res through the
+// adopter's own registration function (e.g. the one its web server uses), so
+// Tanto knows every model the UI serves without importing the adopter.
+func CallRegisterModels(res ifs.IResources, register func(ifs.IResources)) {
+	if register != nil {
+		register(res)
+	}
+}
+
 // ActivateAgent activates a ChatAgent instance on the vnic.
 func ActivateAgent(cfg AgentConfig, vnic ifs.IVNic) *turn.Agent {
 	res := vnic.Resources()
 	aicommon.RegisterTypes(res)
-	if cfg.RegisterTypes != nil {
-		cfg.RegisterTypes(res)
-	}
+	CallRegisterModels(res, cfg.RegisterTypes)
 	settings := &turn.Settings{SystemPrompt: cfg.SystemPrompt, HelpDocs: cfg.HelpDocs,
 		MaxToolCalls:       orDefault(cfg.MaxToolCalls, DefaultMaxToolCalls),
 		MaxConcurrentTurns: orDefault(cfg.MaxConcurrentTurns, DefaultMaxConcurrentTurns),
