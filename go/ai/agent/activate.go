@@ -102,6 +102,9 @@ func ActivateAgent(cfg AgentConfig, vnic ifs.IVNic) *turn.Agent {
 		_, _ = rand.Read(secret)
 	}
 	c := catalog.New(res, cfg.ServiceMap)
+	// Learn model → service from the services' web descriptors, as the web
+	// server learns its routes (plan §7.3).
+	catalog.ActivateDescriptorListener(c, vnic)
 	factory := llm.NewFactory()
 	a := turn.NewAgent(settings, vnic, c, factory, masking.NewClassifier(cfg.MaskingOverrides), secret,
 		tools.NewWeb(cfg.WebToolsURL))

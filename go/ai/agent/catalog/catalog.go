@@ -49,30 +49,60 @@ type Catalog struct {
 	res        ifs.IResources
 	serviceMap map[string]ServiceRef
 
-	mtx     sync.RWMutex
-	entries map[string]*Entry // by lower-case model name
-	version int               // bumped when the entries change
+	mtx         sync.RWMutex
+	entries     map[string]*Entry // by lower-case model name
+	descriptors map[string]*Entry // from the web descriptors, by lower-case model name
+	version     int               // bumped when the entries change
 }
 
 func New(res ifs.IResources, serviceMap map[string]ServiceRef) *Catalog {
-	c := &Catalog{res: res, serviceMap: serviceMap, entries: make(map[string]*Entry)}
+	c := &Catalog{res: res, serviceMap: serviceMap, entries: make(map[string]*Entry),
+		descriptors: make(map[string]*Entry)}
 	c.Refresh()
 	return c
 }
 
-// Refresh rebuilds the entries from the live services. The chat services
-// (area 81) and system services (area 0) are not offered to the model.
+// addDescriptor records a model served by a service, from its web
+// descriptor, and refreshes the entries.
+func (this *Catalog) addDescriptor(model, service string, area int32) {
+	key := strings.ToLower(model)
+	this.mtx.Lock()
+	_, known := this.descriptors[key]
+	this.descriptors[key] = &Entry{Model: model, Service: service, Area: area}
+	this.mtx.Unlock()
+	if !known {
+		this.res.Logger().Info("catalog: ", model, " is served by ", service, "/", area)
+	}
+	this.Refresh()
+}
+
+// Refresh rebuilds the entries: the services' web descriptors first, then the
+// models the health records and local services name, then the adopter's
+// ServiceMap over all. The chat services (area 81) are not offered to the model.
 func (this *Catalog) Refresh() {
 	entries := make(map[string]*Entry)
 	add := func(service string, area int32, model string) {
-		if model == "" || area == 0 || area == int32(aicommon.ServiceArea) {
+		if model == "" || area == int32(aicommon.ServiceArea) {
 			return
 		}
 		key := strings.ToLower(model)
-		if existing, ok := entries[key]; ok && existing.Service <= service {
-			return // deterministic choice when two services serve a model
+		if _, ok := entries[key]; ok {
+			return // the first source wins: descriptors, then health, then local
 		}
 		entries[key] = &Entry{Model: model, Service: service, Area: area, PrimaryKey: this.primaryKey(model)}
+	}
+	// Web descriptors name exactly what the UI reaches; only models this node
+	// has registered (CallRegisterModels) can be described and decoded.
+	this.mtx.RLock()
+	described := make([]Entry, 0, len(this.descriptors))
+	for _, e := range this.descriptors {
+		described = append(described, *e)
+	}
+	this.mtx.RUnlock()
+	for _, e := range described {
+		if _, ok := this.res.Introspector().NodeByTypeName(e.Model); ok {
+			add(e.Service, e.Area, e.Model)
+		}
 	}
 	for service, areas := range health.ServiceCatalog(this.res) {
 		if areas != nil {
