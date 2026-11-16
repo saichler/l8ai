@@ -23,25 +23,11 @@ import (
 
 	aicommon "github.com/saichler/l8ai/go/ai/common"
 	"github.com/saichler/l8ai/go/types/l8ai"
-	"github.com/saichler/l8types/go/ifs"
 )
 
 // ormGet sends a read to a chat-orm service and returns the non-nil elements.
 func (this *Instance) ormGet(serviceName string, query interface{}) ([]interface{}, error) {
-	resp := this.vnic.LeaderRequest(serviceName, aicommon.ServiceArea, ifs.GET, query, this.cfg.ReadTimeoutSeconds)
-	if resp == nil {
-		return nil, errors.New("chat: no response from " + serviceName)
-	}
-	if resp.Error() != nil {
-		return nil, resp.Error()
-	}
-	result := make([]interface{}, 0)
-	for _, e := range resp.Elements() {
-		if e != nil {
-			result = append(result, e)
-		}
-	}
-	return result, nil
+	return aicommon.LeaderGet(this.vnic, serviceName, query, this.cfg.ReadTimeoutSeconds)
 }
 
 // ensureRing loads the latest RingSize messages of the conversation from

@@ -16,6 +16,7 @@
 package chat
 
 import (
+	aicommon "github.com/saichler/l8ai/go/ai/common"
 	"github.com/saichler/l8ai/go/types/l8ai"
 	"github.com/saichler/l8srlz/go/serialize/object"
 	"github.com/saichler/l8types/go/ifs"
@@ -62,9 +63,9 @@ func (this *syncService) GetMessage(pb ifs.IElements, vnic ifs.IVNic, msg *ifs.M
 	if err != nil || q == nil {
 		return object.NewError("chat: invalid sync query")
 	}
-	if after, ok := criteriaInt64(q, "notifSeq", ">"); ok {
-		conversationId, _ := criteriaValue(q, "conversationId", "=")
-		lastMsgSeq, _ := criteriaInt64(q, "lastMsgSeq", "=")
+	if after, ok := aicommon.CriteriaInt64(q, "notifSeq", ">"); ok {
+		conversationId, _ := aicommon.CriteriaValue(q, "conversationId", "=")
+		lastMsgSeq, _ := aicommon.CriteriaInt64(q, "lastMsgSeq", "=")
 		return this.inst.gapFill(conversationId, userId, after, lastMsgSeq)
 	}
 	return this.inst.latestOnly(q, userId)

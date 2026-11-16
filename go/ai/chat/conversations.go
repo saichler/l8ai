@@ -137,10 +137,10 @@ func (this *conversationsService) GetMessage(pb ifs.IElements, vnic ifs.IVNic, m
 // scopedToRequester is true when the query can only match conversations of the
 // requester, so neither its results nor its live registration reach anyone else.
 func (this *Instance) scopedToRequester(q ifs.IQuery, userId string) bool {
-	if member, ok := criteriaValue(q, "members.userId", "="); ok {
+	if member, ok := aicommon.CriteriaValue(q, "members.userId", "="); ok {
 		return member == userId
 	}
-	if conversationId, ok := criteriaValue(q, "conversationId", "="); ok {
+	if conversationId, ok := aicommon.CriteriaValue(q, "conversationId", "="); ok {
 		c := this.conversation(conversationId)
 		if c == nil {
 			return false
@@ -322,12 +322,12 @@ func (this *Instance) dropSubscriptions(conversationId string, userIds []string)
 	probeMsg := &l8ai.ChatMessage{ConversationId: conversationId}
 	probeHeader := &l8ai.ChatConversation{ConversationId: conversationId}
 	for _, sub := range this.msgCache.Subscribers() {
-		if user, ok := this.users.cached(sub.AAAId); ok && contains(userIds, user) && sub.Query.Match(probeMsg) {
+		if user, ok := this.users.Cached(sub.AAAId); ok && contains(userIds, user) && sub.Query.Match(probeMsg) {
 			this.msgCache.UnregisterSubscription(sub.AAAId, sub.RegisterId)
 		}
 	}
 	for _, sub := range this.cnvCache.Subscribers() {
-		if user, ok := this.users.cached(sub.AAAId); ok && contains(userIds, user) && sub.Query.Match(probeHeader) {
+		if user, ok := this.users.Cached(sub.AAAId); ok && contains(userIds, user) && sub.Query.Match(probeHeader) {
 			this.cnvCache.UnregisterSubscription(sub.AAAId, sub.RegisterId)
 		}
 	}

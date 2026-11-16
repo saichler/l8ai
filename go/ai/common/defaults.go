@@ -35,6 +35,12 @@ const (
 	ChatSyncService = "ChatSync"
 )
 
+// Service groups: each process elects one leader for its public services.
+const (
+	ChatRouterGroup = "ChatRtr"
+	ChatUsersGroup  = "ChatUsr"
+)
+
 // Chat router (internal).
 const (
 	ChatIdxService = "ChatIdx"

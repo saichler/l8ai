@@ -13,20 +13,19 @@
  * limitations under the License.
  */
 
-package chat
+package common
 
 import (
-	"errors"
 	"sync"
 	"time"
 
 	"github.com/saichler/l8types/go/ifs"
 )
 
-// userCache caches Security().UserInfo per aaaId (plan §4.3). Only successful
+// UserCache caches Security().UserInfo per aaaId (plan §4.3). Only successful
 // lookups are cached, so an expired session is rejected as soon as the entry
 // ages out.
-type userCache struct {
+type UserCache struct {
 	ttl     time.Duration
 	mtx     sync.Mutex
 	entries map[string]*userEntry
@@ -37,20 +36,13 @@ type userEntry struct {
 	expires time.Time
 }
 
-func newUserCache(ttl time.Duration) *userCache {
-	return &userCache{ttl: ttl, entries: make(map[string]*userEntry)}
+// NewUserCache returns a cache that keeps each lookup for ttl.
+func NewUserCache(ttl time.Duration) *UserCache {
+	return &UserCache{ttl: ttl, entries: make(map[string]*userEntry)}
 }
 
-// requester returns the user ID behind the aaaId of a browser request.
-func (this *Instance) requester(msg *ifs.Message) (string, error) {
-	aaaId := msg.AAAId()
-	if aaaId == "" {
-		return "", errors.New("chat: request has no session")
-	}
-	return this.users.resolve(aaaId, this.vnic)
-}
-
-func (this *userCache) resolve(aaaId string, vnic ifs.IVNic) (string, error) {
+// Resolve returns the user ID behind a validated aaaId.
+func (this *UserCache) Resolve(aaaId string, vnic ifs.IVNic) (string, error) {
 	now := time.Now()
 	this.mtx.Lock()
 	entry, ok := this.entries[aaaId]
@@ -68,8 +60,8 @@ func (this *userCache) resolve(aaaId string, vnic ifs.IVNic) (string, error) {
 	return userId, nil
 }
 
-// cached returns the user of an aaaId resolved earlier, without a lookup.
-func (this *userCache) cached(aaaId string) (string, bool) {
+// Cached returns the user of an aaaId resolved earlier, without a lookup.
+func (this *UserCache) Cached(aaaId string) (string, bool) {
 	this.mtx.Lock()
 	defer this.mtx.Unlock()
 	entry, ok := this.entries[aaaId]
@@ -79,9 +71,9 @@ func (this *userCache) cached(aaaId string) (string, bool) {
 	return entry.userId, true
 }
 
-// purge drops expired entries. Entries are kept for one extra TTL so that
-// cached() can still map the aaaId of a recent subscriber to its user.
-func (this *userCache) purge() {
+// Purge drops expired entries. Entries are kept for one extra TTL so that
+// Cached() can still map the aaaId of a recent subscriber to its user.
+func (this *UserCache) Purge() {
 	cutoff := time.Now().Add(-this.ttl)
 	this.mtx.Lock()
 	defer this.mtx.Unlock()

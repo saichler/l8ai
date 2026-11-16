@@ -45,7 +45,7 @@ type Instance struct {
 	msgCache *cache.Cache
 	cnvCache *cache.Cache
 
-	users  *userCache
+	users  *aicommon.UserCache
 	writer *writeBehind
 
 	assignQueue chan string // conversations to load from chat-orm and own
@@ -61,7 +61,7 @@ func newInstance(cfg *aicommon.ChatConfig, vnic ifs.IVNic) *Instance {
 	this.msgCache.SetNotificationsFor(aicommon.ChatMsgService, aicommon.ServiceArea)
 	this.cnvCache = cache.NewCache(&l8ai.ChatConversation{}, nil, nil, r)
 	this.cnvCache.SetNotificationsFor(aicommon.ChatConvService, aicommon.ServiceArea)
-	this.users = newUserCache(cfg.UserInfoCacheTTL)
+	this.users = aicommon.NewUserCache(cfg.UserInfoCacheTTL)
 	this.writer = newWriteBehind(this)
 	this.assignQueue = make(chan string, assignQueueSize)
 	this.accepting.Store(true)

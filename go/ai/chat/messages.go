@@ -95,7 +95,7 @@ func (this *messagesService) GetMessage(pb ifs.IElements, vnic ifs.IVNic, msg *i
 	if err != nil {
 		return object.NewError(err.Error())
 	}
-	conversationId, _ := criteriaValue(q, "conversationId", "=")
+	conversationId, _ := aicommon.CriteriaValue(q, "conversationId", "=")
 	c := this.inst.conversation(conversationId)
 	if c == nil {
 		return object.NewError("chat: conversation " + conversationId + " is not owned by this instance")
@@ -116,9 +116,9 @@ func (this *messagesService) GetMessage(pb ifs.IElements, vnic ifs.IVNic, msg *i
 	elems, metadata := this.inst.msgCache.Fetch(int(q.Page())*limit, limit, q)
 	if limit > 0 && len(elems) < limit && !complete {
 		// The ring does not cover the page: read it from chat-orm (plan §5.3).
-		if pq := pqueryOf(pb); pq != nil {
+		if pq := aicommon.PQueryOf(pb); pq != nil {
 			ormResp := vnic.LeaderRequest(aicommon.ChatMsgDbService, aicommon.ServiceArea, ifs.GET,
-				plainQuery(pq), this.inst.cfg.ReadTimeoutSeconds)
+				aicommon.PlainQuery(pq), this.inst.cfg.ReadTimeoutSeconds)
 			if ormResp != nil && ormResp.Error() == nil {
 				return ormResp
 			}

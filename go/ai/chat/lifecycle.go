@@ -93,7 +93,7 @@ func (this *Instance) maintenance() {
 	defer ticker.Stop()
 	for this.running.Load() {
 		<-ticker.C
-		this.users.purge()
+		this.users.Purge()
 		this.evictIdleRings()
 		if overMemoryGuard() {
 			this.evictOldestRings()

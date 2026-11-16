@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-package chat
+package common
 
 import (
 	"strconv"
@@ -24,10 +24,10 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// criteriaValue returns the right-hand value of the first "<field> <op> <value>"
+// CriteriaValue returns the right-hand value of the first "<field> <op> <value>"
 // comparator in the query's WHERE clause. The parser lower-cases the left
 // operand and strips quotes from the right one.
-func criteriaValue(q ifs.IQuery, field, op string) (string, bool) {
+func CriteriaValue(q ifs.IQuery, field, op string) (string, bool) {
 	return expressionValue(q.Criteria(), strings.ToLower(field), op)
 }
 
@@ -50,9 +50,26 @@ func expressionValue(expr ifs.IExpression, field, op string) (string, bool) {
 	return "", false
 }
 
-// criteriaInt64 is criteriaValue parsed as an int64.
-func criteriaInt64(q ifs.IQuery, field, op string) (int64, bool) {
-	v, ok := criteriaValue(q, field, op)
+// CriteriaList returns the values of a "<field> in [a,b,c]" comparator.
+func CriteriaList(q ifs.IQuery, field string) []string {
+	v, ok := CriteriaValue(q, field, "in")
+	if !ok {
+		return nil
+	}
+	v = strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(v), "["), "]")
+	result := make([]string, 0)
+	for _, item := range strings.Split(v, ",") {
+		item = strings.Trim(strings.TrimSpace(item), "'\"")
+		if item != "" {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+// CriteriaInt64 is CriteriaValue parsed as an int64.
+func CriteriaInt64(q ifs.IQuery, field, op string) (int64, bool) {
+	v, ok := CriteriaValue(q, field, op)
 	if !ok {
 		return 0, false
 	}
@@ -60,20 +77,20 @@ func criteriaInt64(q ifs.IQuery, field, op string) (int64, bool) {
 	return n, err == nil
 }
 
-// pqueryOf returns the structured L8Query of a query-mode request, or nil.
-func pqueryOf(pb ifs.IElements) *l8api.L8Query {
+// PQueryOf returns the structured L8Query of a query-mode request, or nil.
+func PQueryOf(pb ifs.IElements) *l8api.L8Query {
 	if pq, ok := pb.(interface{ PQuery() *l8api.L8Query }); ok {
 		return pq.PQuery()
 	}
 	return nil
 }
 
-// plainQuery returns a copy of the structured query without its live
+// PlainQuery returns a copy of the structured query without its live
 // registration, so a read can be passed on (e.g. to chat-orm) without
 // registering it there. The text is dropped as well: it may carry the
 // "register" keyword, and the receiver uses the structured form when the
 // text is empty.
-func plainQuery(q *l8api.L8Query) *l8api.L8Query {
+func PlainQuery(q *l8api.L8Query) *l8api.L8Query {
 	c := proto.Clone(q).(*l8api.L8Query)
 	c.Text = ""
 	c.Register = l8api.L8Register_L8_REGISTER_INVALID
