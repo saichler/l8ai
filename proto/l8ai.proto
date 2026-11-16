@@ -1,0 +1,219 @@
+/*
+ * © 2025 Sharon Aicler (saichler@gmail.com)
+ *
+ * Layer 8 Ecosystem is licensed under the Apache License, Version 2.0.
+ * You may obtain a copy of the License at:
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package l8ai;
+
+option go_package = "./types/l8ai";
+
+import "api.proto";
+import "l8common.proto";
+
+// ─── Enums ───
+enum ChatPeerKind {
+  CHAT_PEER_KIND_UNSPECIFIED = 0;
+  CHAT_PEER_KIND_USER = 1;
+  CHAT_PEER_KIND_GROUP = 2;
+  CHAT_PEER_KIND_AGENT = 3;
+}
+
+enum ChatPresence {
+  CHAT_PRESENCE_UNSPECIFIED = 0;
+  CHAT_PRESENCE_ONLINE = 1;
+  CHAT_PRESENCE_AWAY = 2;
+  CHAT_PRESENCE_OFFLINE = 3;
+  CHAT_PRESENCE_CUSTOM = 4;
+}
+
+enum ChatMessageKind {
+  CHAT_MESSAGE_KIND_UNSPECIFIED = 0;
+  CHAT_MESSAGE_KIND_TEXT = 1;
+  CHAT_MESSAGE_KIND_SYSTEM = 2;
+  CHAT_MESSAGE_KIND_AGENT = 3;
+}
+
+enum ChatAgentState {
+  CHAT_AGENT_STATE_UNSPECIFIED = 0;
+  CHAT_AGENT_STATE_IDLE = 1;
+  CHAT_AGENT_STATE_RUNNING = 2;
+  CHAT_AGENT_STATE_FAILED = 3;
+}
+
+// ─── Embedded children ───
+
+// Child of ChatConversation: membership and per-member read position.
+message ChatMember {
+  string user_id = 1;
+  int64 last_read_seq = 2;
+  int64 joined_at = 3;
+}
+
+// Child of ChatMessage: a file stored in FileStore (storage_path only, no bytes).
+message ChatAttachment {
+  string attachment_id = 1;
+  string storage_path = 2;
+  string file_name = 3;
+  int64 file_size = 4;
+  string mime_type = 5;
+  string checksum = 6;
+}
+
+// ─── Prime Objects ───
+
+// Owned by one chat instance; persisted in ChatCnvDb.
+message ChatConversation {
+  string conversation_id = 1;
+  ChatPeerKind peer_kind = 2;
+  string peer_key = 3;               // USER: "<minUserId>|<maxUserId>", GROUP: group_id, AGENT: "agent|<userId>"
+  string group_id = 4;
+  string title = 5;
+  string created_by = 6;
+  int64 created_at = 7;
+  int64 last_seq = 8;
+  int64 last_message_at = 9;
+  string last_preview = 10;
+  repeated ChatMember members = 11;
+  string llm_profile_id = 12;        // AGENT conversations: profile for this conversation
+  string summary = 13;               // agent compaction state
+  int64 summary_up_to_seq = 14;
+  ChatAgentState agent_state = 15;
+  string agent_turn_id = 16;
+  l8common.AuditInfo audit_info = 17;
+  int64 notif_seq = 18;              // per-conversation notification sequence, in memory only (not persisted)
+}
+
+message ChatConversationList {
+  repeated ChatConversation list = 1;
+  l8api.L8MetaData metadata = 2;
+}
+
+// Unbounded child collection of ChatConversation, with its own service (plan D1).
+message ChatMessage {
+  string message_id = 1;             // client-generated UUID: idempotent retries
+  string conversation_id = 2;        // reference to ChatConversation by ID
+  int64 seq = 3;
+  string sender_id = 4;
+  ChatMessageKind kind = 5;
+  string body = 6;
+  repeated ChatAttachment attachments = 7;
+  int64 sent_at = 8;
+  string llm_profile_id = 9;
+  int32 token_count = 10;
+  string agent_turn_id = 11;
+  int64 notif_seq = 12;              // set on push; not persisted
+}
+
+message ChatMessageList {
+  repeated ChatMessage list = 1;
+  l8api.L8MetaData metadata = 2;
+}
+
+message ChatGroup {
+  string group_id = 1;
+  string name = 2;
+  repeated string member_ids = 3;
+  string created_by = 4;
+  int64 created_at = 5;
+}
+
+message ChatGroupList {
+  repeated ChatGroup list = 1;
+  l8api.L8MetaData metadata = 2;
+}
+
+message ChatUserStatus {
+  string user_id = 1;
+  ChatPresence presence = 2;
+  string custom_text = 3;
+  string custom_color = 4;
+  int64 last_seen_at = 5;
+}
+
+message ChatUserStatusList {
+  repeated ChatUserStatus list = 1;
+  l8api.L8MetaData metadata = 2;
+}
+
+// ─── Computed views and internal types ───
+
+// Computed view (not persisted): one row per peer of the owner, merged by the router.
+message ChatPeer {
+  string peer_row_id = 1;            // UUIDv5(owner_id + peer_kind + peer_id)
+  string owner_id = 2;
+  ChatPeerKind peer_kind = 3;
+  string peer_id = 4;
+  string display_name = 5;
+  int64 last_message_at = 6;
+  string last_preview = 7;
+  repeated string unread_conversation_ids = 8;
+}
+
+message ChatPeerList {
+  repeated ChatPeer list = 1;
+  l8api.L8MetaData metadata = 2;
+}
+
+// Router index row: which chat instance owns a conversation.
+message ChatConvIndex {
+  string conversation_id = 1;
+  string owner_uuid = 2;
+  int64 assigned_at = 3;
+}
+
+message ChatConvIndexList {
+  repeated ChatConvIndex list = 1;
+  l8api.L8MetaData metadata = 2;
+}
+
+// Router: a routed live (registered) query, replayed on owner change.
+message ChatRegistration {
+  string registration_id = 1;
+  string aaa_id = 2;
+  string register_id = 3;
+  string conversation_id = 4;
+  bool fan_out = 5;
+  string query_text = 6;
+}
+
+message ChatRegistrationList {
+  repeated ChatRegistration list = 1;
+  l8api.L8MetaData metadata = 2;
+}
+
+// Notification-sequence sync reply (query/response type only, not persisted).
+message ChatSync {
+  string conversation_id = 1;
+  int64 notif_seq = 2;
+  bool snapshot = 3;
+  ChatConversation conversation = 4;
+  repeated ChatMessage messages = 5;
+}
+
+message ChatSyncList {
+  repeated ChatSync list = 1;
+  l8api.L8MetaData metadata = 2;
+}
+
+// Internal Unicast payload from the owner chat instance to an agent instance.
+// The requester's aaaId travels in the message header.
+message ChatAgentTurn {
+  string turn_id = 1;
+  string conversation_id = 2;
+  string requester_id = 3;
+  string llm_profile_id = 4;
+  int64 trigger_seq = 5;
+  int32 attempt = 6;
+}
