@@ -200,6 +200,7 @@ message ChatSync {
   bool snapshot = 3;
   ChatConversation conversation = 4;
   repeated ChatMessage messages = 5;
+  int64 last_msg_seq = 6;  // gap-fill request: the highest message seq the client holds
 }
 
 message ChatSyncList {

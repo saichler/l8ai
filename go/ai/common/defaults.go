@@ -125,6 +125,7 @@ const (
 	DefaultPageSize              = 10               // messages per page ("load 10 older")
 	DefaultRingEviction          = 30 * time.Minute // idle time before a ring is evicted
 	DefaultFlushInterval         = time.Second      // write-behind flush to chat-orm
+	DefaultFlushMaxItems         = 50               // or flush as soon as this many writes are queued
 	DefaultReadTimeoutSeconds    = 3                // bounded Request for fan-out reads
 	DefaultUserInfoCacheTTL      = 30 * time.Second // per-aaaId UserInfo cache on chat instances
 	DefaultNotifRetain           = 10               // notifications retained per conversation for gap fill
@@ -151,11 +152,13 @@ type ChatConfig struct {
 	PageSize              int
 	RingEviction          time.Duration
 	FlushInterval         time.Duration
+	FlushMaxItems         int
 	ReadTimeoutSeconds    int
 	UserInfoCacheTTL      time.Duration
 	NotifRetain           int
 	HeartbeatInterval     time.Duration
 	OfflineAfter          time.Duration
+	PeerListSize          int
 	AgentTurnTimeout      time.Duration
 	AgentMaxAttempts      int
 	ContextWindowTokens   int
@@ -173,11 +176,13 @@ func NewChatConfig() *ChatConfig {
 		PageSize:              DefaultPageSize,
 		RingEviction:          DefaultRingEviction,
 		FlushInterval:         DefaultFlushInterval,
+		FlushMaxItems:         DefaultFlushMaxItems,
 		ReadTimeoutSeconds:    DefaultReadTimeoutSeconds,
 		UserInfoCacheTTL:      DefaultUserInfoCacheTTL,
 		NotifRetain:           DefaultNotifRetain,
 		HeartbeatInterval:     DefaultHeartbeatInterval,
 		OfflineAfter:          DefaultOfflineAfter,
+		PeerListSize:          DefaultPeerListSize,
 		AgentTurnTimeout:      DefaultAgentTurnTimeout,
 		AgentMaxAttempts:      DefaultAgentMaxAttempts,
 		ContextWindowTokens:   DefaultContextWindowTokens,
