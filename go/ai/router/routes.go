@@ -81,16 +81,21 @@ var accepted = func() ifs.IElements { return object.New(nil, &l8web.L8Empty{}) }
 
 // routeWrite sends a write to the conversation's owner and returns at once
 // (plan §4.1). An unknown conversation is assigned by the leader when create
-// is true; a non-leader replica hands such a request to the leader.
+// is true. A non-leader replica hands such a request to the leader directly
+// (Request to its UUID, not LeaderRequest: when the bus and the replicas see
+// different leaders, LeaderRequest can send it straight back). A request that
+// another replica already forwarded is never forwarded again: this replica
+// handles it, so a disagreement about the leader cannot loop.
 func (this *Router) routeWrite(publicService, instanceService string, action ifs.Action, conversationId string,
-	elem interface{}, aaaId string, create bool) ifs.IElements {
+	elem interface{}, msg *ifs.Message, create bool) ifs.IElements {
 	if conversationId == "" {
 		return object.NewError("router: ConversationId is required")
 	}
+	aaaId := msg.AAAId()
 	owner := this.ownerOf(conversationId)
 	if owner == "" {
-		if !this.isLeader() {
-			return this.vnic.LeaderRequest(publicService, aicommon.ServiceArea, action, elem, this.cfg.ReadTimeoutSeconds, aaaId)
+		if leader := this.forwardTarget(msg); leader != "" {
+			return this.vnic.Request(leader, publicService, aicommon.ServiceArea, action, elem, this.cfg.ReadTimeoutSeconds, aaaId)
 		}
 		if !create {
 			return object.NewError("router: unknown conversation " + conversationId)
@@ -105,15 +110,30 @@ func (this *Router) routeWrite(publicService, instanceService string, action ifs
 
 // routeRead sends a read to the conversation's owner and waits, bounded by
 // ReadTimeoutSeconds (plan §4.2).
-func (this *Router) routeRead(publicService, instanceService, conversationId string, pq *l8api.L8Query, aaaId string) ifs.IElements {
+func (this *Router) routeRead(publicService, instanceService, conversationId string, pq *l8api.L8Query, msg *ifs.Message) ifs.IElements {
+	aaaId := msg.AAAId()
 	owner := this.ownerOf(conversationId)
 	if owner == "" {
-		if !this.isLeader() {
-			return this.vnic.LeaderRequest(publicService, aicommon.ServiceArea, ifs.GET, pq, this.cfg.ReadTimeoutSeconds, aaaId)
+		if leader := this.forwardTarget(msg); leader != "" {
+			return this.vnic.Request(leader, publicService, aicommon.ServiceArea, ifs.GET, pq, this.cfg.ReadTimeoutSeconds, aaaId)
 		}
 		return object.NewError("router: unknown conversation " + conversationId)
 	}
 	return this.vnic.Request(owner, instanceService, aicommon.ServiceArea, ifs.GET, pq, this.cfg.ReadTimeoutSeconds, aaaId)
+}
+
+// forwardTarget returns the leader to hand a request to, or "" when this
+// replica handles it: it is the leader, the leader is unknown, or the request
+// already came from another router replica.
+func (this *Router) forwardTarget(msg *ifs.Message) string {
+	if this.isLeader() || aicommon.IsParticipant(this.vnic.Resources(), aicommon.ChatIdxService, msg.Source()) {
+		return ""
+	}
+	leader := this.vnic.Resources().Services().GetLeader(aicommon.ChatIdxService, aicommon.ServiceArea)
+	if leader == this.vnic.Resources().SysConfig().LocalUuid {
+		return ""
+	}
+	return leader
 }
 
 // fanOut sends a read to the given instances in parallel and returns the

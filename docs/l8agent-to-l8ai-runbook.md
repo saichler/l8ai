@@ -141,6 +141,13 @@ agent.ActivateAgent(agent.AgentConfig{
 
 The service Dockerfiles resolve every package except `main.go` from GitHub, so push the project's own packages (e.g. the models package) before building the images.
 
+**Every service Dockerfile needs the "@latest" step** right after `go mod tidy` (probler has it; l8erp did not):
+```dockerfile
+RUN GOPROXY=direct GOPRIVATE=github.com go mod tidy
+RUN GOPROXY=direct GOPRIVATE=github.com go get $(go list -m all | awk '/^github.com\/saichler\// && $1 != "github.com/saichler/build" {print $1"@latest"}')
+```
+Without it, `go mod tidy` keeps the older l8types / l8utils / l8bus versions that the project's (and other modules') `go.mod` pin next to the new l8ai, and the build fails (`UserInfo undefined`, `too many arguments in call to aggregator.NewAggregator`, `does not implement ifs.IVNic (wrong type for method Unicast)`). It is needed in **all** images, not only the chat ones: the security plugin is built from the latest versions, and every service must match it.
+
 ---
 
 ## 6. Kubernetes
@@ -225,6 +232,7 @@ Every workload carries the `NODE_IP` env like the project's other pods. See prob
 | Symptom | Cause | Fix |
 |---|---|---|
 | Image builds fail with `not enough arguments in call to aggregator.NewAggregator` | a module still calls the 3-argument form | pass the size cap: `NewAggregator(vnic, interval, 0, timeout)` |
+| Image builds fail with `UserInfo undefined`, `too many arguments in call to aggregator.NewAggregator` or `does not implement ifs.IVNic (wrong type for method Unicast)` | the Dockerfile has no "@latest" step, so old framework versions are mixed with the new l8ai | add the step from §5 to every Dockerfile |
 | Chat writes time out right after a deploy | the router replicas were still activating | retry after they log `chat router activated` |
 | `router: no chat instance is available` | an l8ai build older than `c46d187` (services found through `GetParticipants`, which only knows services the asking node hosts) | rebuild against current l8ai (services found through the health records) |
 | `router: cold start: … Cannot find active handler for service ChatCnvDb` | an l8ai build older than `368f9aa` (chat ORM in the shared `L8SG` group, whose leader is another ORM node) | rebuild against current l8ai (own group `ChatOrm`) |

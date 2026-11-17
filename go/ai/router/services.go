@@ -38,7 +38,7 @@ func (this *msgRoute) PostMessage(pb ifs.IElements, vnic ifs.IVNic, msg *ifs.Mes
 	for _, e := range pb.Elements() {
 		if m, ok := e.(*l8ai.ChatMessage); ok && m != nil {
 			resp = this.r.routeWrite(aicommon.ChatMsgService, aicommon.ChatShMsgService, ifs.POST,
-				m.ConversationId, m, msg.AAAId(), false)
+				m.ConversationId, m, msg, false)
 			if resp != nil && resp.Error() != nil {
 				return resp
 			}
@@ -62,7 +62,7 @@ func (this *msgRoute) GetMessage(pb ifs.IElements, vnic ifs.IVNic, msg *ifs.Mess
 		return accepted()
 	}
 	conversationId, _ := aicommon.CriteriaValue(q, "conversationId", "=")
-	resp = this.r.routeRead(aicommon.ChatMsgService, aicommon.ChatShMsgService, conversationId, pq, msg.AAAId())
+	resp = this.r.routeRead(aicommon.ChatMsgService, aicommon.ChatShMsgService, conversationId, pq, msg)
 	if q.Register() == l8api.L8Register_L8_REGISTER_REGISTER && resp != nil && resp.Error() == nil {
 		this.r.record(pq, msg.AAAId(), aicommon.ChatMsgService, conversationId)
 	}
@@ -84,7 +84,7 @@ func (this *convRoute) PostMessage(pb ifs.IElements, vnic ifs.IVNic, msg *ifs.Me
 	for _, e := range pb.Elements() {
 		if h, ok := e.(*l8ai.ChatConversation); ok && h != nil {
 			resp = this.r.routeWrite(aicommon.ChatConvService, aicommon.ChatShCnvService, ifs.POST,
-				h.ConversationId, h, msg.AAAId(), true)
+				h.ConversationId, h, msg, true)
 			if resp != nil && resp.Error() != nil {
 				return resp
 			}
@@ -109,7 +109,7 @@ func (this *convRoute) PatchMessage(pb ifs.IElements, vnic ifs.IVNic, msg *ifs.M
 			continue
 		}
 		resp = this.r.routeWrite(aicommon.ChatConvService, aicommon.ChatShCnvService, ifs.PATCH,
-			h.ConversationId, h, msg.AAAId(), false)
+			h.ConversationId, h, msg, false)
 		if resp != nil && resp.Error() != nil {
 			return resp
 		}
@@ -129,7 +129,7 @@ func (this *convRoute) GetMessage(pb ifs.IElements, vnic ifs.IVNic, msg *ifs.Mes
 	}
 	conversationId, _ := aicommon.CriteriaValue(q, "conversationId", "=")
 	if conversationId != "" {
-		resp = this.r.routeRead(aicommon.ChatConvService, aicommon.ChatShCnvService, conversationId, pq, msg.AAAId())
+		resp = this.r.routeRead(aicommon.ChatConvService, aicommon.ChatShCnvService, conversationId, pq, msg)
 	} else {
 		resp = mergeConversations(this.r.fanOut(this.r.allInstances(), aicommon.ChatShCnvService, pq, msg.AAAId()), int(q.Limit()))
 	}
@@ -189,7 +189,7 @@ func (this *syncRoute) GetMessage(pb ifs.IElements, vnic ifs.IVNic, msg *ifs.Mes
 	pq = aicommon.PlainQuery(pq)
 	if _, gapFill := aicommon.CriteriaInt64(q, "notifSeq", ">"); gapFill {
 		conversationId, _ := aicommon.CriteriaValue(q, "conversationId", "=")
-		return this.r.routeRead(aicommon.ChatSyncService, aicommon.ChatShSyncService, conversationId, pq, msg.AAAId())
+		return this.r.routeRead(aicommon.ChatSyncService, aicommon.ChatShSyncService, conversationId, pq, msg)
 	}
 	owners := make(map[string]bool)
 	for _, id := range aicommon.CriteriaList(q, "conversationId") {
