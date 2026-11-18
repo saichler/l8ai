@@ -152,12 +152,20 @@ func (this *Agent) webAllowed(ctx context.Context, r *turnRun, question string) 
 	user := "Application entities: " + strings.Join(models, ", ") + "\n\nQuestion: " + r.masker.MaskText(question) +
 		"\n\nDoes this question ask about the asker's own application data? Reply YES or NO."
 	resp, err := r.client.Send(ctx, &llm.Request{System: classifierSystemPrompt,
-		Messages: []llm.Message{{Role: "user", Content: user}}, MaxTokens: 16})
+		Messages: []llm.Message{{Role: "user", Content: user}}, MaxTokens: classifierMaxTokens})
 	if err != nil {
 		return false, err
 	}
 	r.tokens += resp.Usage.InputTokens + resp.Usage.OutputTokens
-	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(resp.Text())), "NO"), nil
+	return classifiedGeneral(resp.Text()), nil
+}
+
+// classifiedGeneral reads the classifier's verdict: true only when its first
+// word is NO (markdown or punctuation around it ignored). An empty or any
+// other answer fails closed.
+func classifiedGeneral(answer string) bool {
+	words := strings.FieldsFunc(answer, func(r rune) bool { return !unicode.IsLetter(r) })
+	return len(words) > 0 && strings.ToUpper(words[0]) == "NO"
 }
 
 // humanize turns a model name into lower-case words: "SalesOrder" → "sales order".
@@ -172,6 +180,11 @@ func humanize(name string) string {
 	}
 	return b.String()
 }
+
+// classifierMaxTokens leaves a reasoning model (gpt-oss, muse) room to think
+// before its one-word answer: it needs ~70-180 tokens, and with too few it
+// answers nothing and every @web question is refused.
+const classifierMaxTokens = 1024
 
 const (
 	helpSystemPrompt = `You are the in-app help assistant of this application. You explain how to use the application: where its menus are and how to perform tasks step by step.
