@@ -28,11 +28,13 @@ type Factory struct {
 	clients  map[Profile]Client
 	limiters map[string]*limiter
 	perMin   float64 // requests per minute this instance may send per provider
+	ends     *Endpoints
 }
 
-// NewFactory returns an empty client factory.
-func NewFactory() *Factory {
-	return &Factory{clients: make(map[Profile]Client), limiters: make(map[string]*limiter)}
+// NewFactory returns an empty client factory whose clients reach each
+// provider through endpoints (nil: its base URL as is).
+func NewFactory(endpoints *Endpoints) *Factory {
+	return &Factory{clients: make(map[Profile]Client), limiters: make(map[string]*limiter), ends: endpoints}
 }
 
 // Client returns the client of a profile.
@@ -51,9 +53,9 @@ func (this *Factory) Client(p *Profile) (Client, error) {
 	var c Client
 	switch p.Kind {
 	case KindAnthropic:
-		c = newAnthropic(p, l)
+		c = newAnthropic(p, l, this.ends)
 	case KindOpenAICompatible:
-		c = newOpenAI(p, l)
+		c = newOpenAI(p, l, this.ends)
 	default:
 		return nil, errors.New("unsupported LLM provider kind " + p.Kind)
 	}

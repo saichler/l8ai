@@ -32,9 +32,9 @@ type openAI struct {
 	poster *poster
 }
 
-func newOpenAI(p *Profile, l *limiter) *openAI {
+func newOpenAI(p *Profile, l *limiter, e *Endpoints) *openAI {
 	return &openAI{url: strings.TrimRight(p.BaseURL, "/") + "/chat/completions", apiKey: p.APIKey,
-		model: p.Model, poster: newPoster(l)}
+		model: p.Model, poster: newPoster(l, e)}
 }
 
 type oaiToolCall struct {

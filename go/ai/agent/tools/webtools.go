@@ -46,12 +46,14 @@ const (
 // Web calls a web tools service (POST /v1/search and /v1/fetch, bearer-key
 // authenticated), as l8agent's '@web' mode does.
 type Web struct {
-	baseURL string
-	http    *http.Client
+	baseURL   string
+	http      *http.Client
+	endpoints *llm.Endpoints
 }
 
-// NewWeb returns a client for the service at baseURL, or nil if it is empty.
-func NewWeb(baseURL string) *Web {
+// NewWeb returns a client for the service at baseURL, reached through
+// endpoints (its main URL or fallback), or nil if baseURL is empty.
+func NewWeb(baseURL string, endpoints *llm.Endpoints) *Web {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
 		return nil
@@ -62,8 +64,10 @@ func NewWeb(baseURL string) *Web {
 		TLSHandshakeTimeout: webDialTimeout,
 		MaxIdleConns:        4,
 		IdleConnTimeout:     30 * time.Second,
+		TLSClientConfig:     endpoints.TLSConfig(),
 	}
-	return &Web{baseURL: baseURL, http: &http.Client{Timeout: webRequestTimeout, Transport: transport}}
+	return &Web{baseURL: baseURL, http: &http.Client{Timeout: webRequestTimeout, Transport: transport},
+		endpoints: endpoints}
 }
 
 // WebDefinitions returns the web tools offered to the model.
@@ -127,7 +131,8 @@ func (this *Web) Execute(ctx context.Context, name, input, apiKey string) (strin
 func (this *Web) post(ctx context.Context, path string, body []byte, apiKey string) (*http.Response, error) {
 	var lastErr error
 	for i := 0; i < webAttempts; i++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, this.baseURL+path, bytes.NewReader(body))
+		target := this.endpoints.Resolve(ctx, this.baseURL+path)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 		if err != nil {
 			return nil, err
 		}
@@ -142,6 +147,7 @@ func (this *Web) post(ctx context.Context, path string, body []byte, apiKey stri
 		if ctx.Err() != nil || !errors.As(err, &nerr) {
 			return nil, err
 		}
+		this.endpoints.Failed(target)
 	}
 	return nil, lastErr
 }

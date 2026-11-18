@@ -39,13 +39,16 @@ const (
 
 // poster sends JSON to a provider with retry on 429 and 5xx (honouring
 // Retry-After, exponential backoff with jitter) behind a request limiter.
+// The URL goes through the endpoints, so it is sent to the main URL or its
+// fallback, whichever answers.
 type poster struct {
-	http    *http.Client
-	limiter *limiter
+	http      *http.Client
+	limiter   *limiter
+	endpoints *Endpoints
 }
 
-func newPoster(l *limiter) *poster {
-	return &poster{http: &http.Client{Timeout: requestTimeout}, limiter: l}
+func newPoster(l *limiter, e *Endpoints) *poster {
+	return &poster{http: e.HTTPClient(requestTimeout), limiter: l, endpoints: e}
 }
 
 func (this *poster) post(ctx context.Context, url string, headers map[string]string, body []byte) ([]byte, error) {
@@ -54,7 +57,8 @@ func (this *poster) post(ctx context.Context, url string, headers map[string]str
 		if err := this.limiter.wait(ctx); err != nil {
 			return nil, err
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+		target := this.endpoints.Resolve(ctx, url)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 		if err != nil {
 			return nil, err
 		}
@@ -64,6 +68,9 @@ func (this *poster) post(ctx context.Context, url string, headers map[string]str
 		resp, err := this.http.Do(req)
 		if err != nil {
 			lastErr = err
+			if ctx.Err() == nil {
+				this.endpoints.Failed(target)
+			}
 			if !sleep(ctx, backoff(attempt, "")) {
 				return nil, ctx.Err()
 			}

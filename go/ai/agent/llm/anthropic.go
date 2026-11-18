@@ -33,12 +33,12 @@ type anthropic struct {
 	poster *poster
 }
 
-func newAnthropic(p *Profile, l *limiter) *anthropic {
+func newAnthropic(p *Profile, l *limiter, e *Endpoints) *anthropic {
 	url := strings.TrimRight(p.BaseURL, "/")
 	if !strings.HasSuffix(url, "/messages") {
 		url += "/messages"
 	}
-	return &anthropic{url: url, apiKey: p.APIKey, model: p.Model, poster: newPoster(l)}
+	return &anthropic{url: url, apiKey: p.APIKey, model: p.Model, poster: newPoster(l, e)}
 }
 
 type cacheControl struct {

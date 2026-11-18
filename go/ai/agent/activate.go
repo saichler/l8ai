@@ -18,6 +18,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/rand"
 	"time"
 
@@ -54,6 +55,16 @@ type AgentConfig struct {
 	// WebToolsURL is the web tools service of '@web' prompts; empty answers
 	// them from model knowledge.
 	WebToolsURL string
+	// Fallbacks maps the main URL of a service (an LLM provider's base URL
+	// or WebToolsURL) to a fallback URL of the same service, e.g. its LAN
+	// address. The main URL is probed at start; when it does not answer
+	// within llm.ProbeTimeout the fallback is used, and a request that cannot
+	// reach the URL in use probes again. Only the origins (scheme, host,
+	// port) count: request paths are kept.
+	Fallbacks map[string]string
+	// TrustedCAs is PEM CA certificates trusted besides the system ones, for
+	// fallbacks serving a private CA's certificate.
+	TrustedCAs string
 	// ServiceMap overrides or adds model → service entries of the catalog (N6).
 	ServiceMap map[string]catalog.ServiceRef
 	// MaskingOverrides overrides field classifications per model.
@@ -105,9 +116,16 @@ func ActivateAgent(cfg AgentConfig, vnic ifs.IVNic) *turn.Agent {
 	// Learn model → service from the services' web descriptors, as the web
 	// server learns its routes (plan §7.3).
 	catalog.ActivateDescriptorListener(c, vnic)
-	factory := llm.NewFactory()
+	endpoints, err := llm.NewEndpoints(cfg.Fallbacks, cfg.TrustedCAs,
+		func(msg string) { res.Logger().Info("ChatAgent: ", msg) })
+	if err != nil {
+		res.Logger().Error("ChatAgent: fallbacks not used: ", err.Error())
+		endpoints = nil
+	}
+	go endpoints.ProbeAll(context.Background())
+	factory := llm.NewFactory(endpoints)
 	a := turn.NewAgent(settings, vnic, c, factory, masking.NewClassifier(cfg.MaskingOverrides), secret,
-		tools.NewWeb(cfg.WebToolsURL))
+		tools.NewWeb(cfg.WebToolsURL, endpoints))
 
 	// Activated as stateful (DR30); the chat instances find it in the health records.
 	vnic.Resources().Registry().Register(&turn.Service{})
