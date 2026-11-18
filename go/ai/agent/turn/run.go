@@ -92,6 +92,7 @@ func (this *Agent) run(t *l8ai.ChatAgentTurn, source, aaaId string) {
 		return
 	}
 	r.tail = convctx.Tail(messages)
+	inlineAttachments(r.tail, aaaId, this.download)
 	r.masker = masking.NewMasker(this.masks, this.secret, t.ConversationId)
 
 	text := ""

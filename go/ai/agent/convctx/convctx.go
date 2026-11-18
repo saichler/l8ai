@@ -39,12 +39,14 @@ func Budget(contextWindow, maxOutput int) int {
 	return (contextWindow - maxOutput) * 95 / 100
 }
 
-// Tail returns the conversation messages a turn sees: text from users and
-// Tanto, ascending by seq. SYSTEM messages are left out.
+// Tail returns the conversation messages a turn sees: text or attached files
+// from users, and Tanto's answers, ascending by seq. SYSTEM messages are left
+// out.
 func Tail(messages []*l8ai.ChatMessage) []*l8ai.ChatMessage {
 	result := make([]*l8ai.ChatMessage, 0, len(messages))
 	for _, m := range messages {
-		if m != nil && m.Kind != l8ai.ChatMessageKind_CHAT_MESSAGE_KIND_SYSTEM && strings.TrimSpace(m.Body) != "" {
+		if m != nil && m.Kind != l8ai.ChatMessageKind_CHAT_MESSAGE_KIND_SYSTEM &&
+			(strings.TrimSpace(m.Body) != "" || len(m.Attachments) > 0) {
 			result = append(result, m)
 		}
 	}
