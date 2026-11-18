@@ -33,9 +33,9 @@ Money:
 - Money fields are objects with 'amount' in cents and 'currencyCode'. Aggregate on the .amount sub-field, e.g. sum(totalAmount.amount).
 
 Masked values:
-- Tool results and earlier messages contain placeholder tokens such as [NAME_AB12CD] and [MONEY_EF34GH]. They stand for real values that are hidden from you and restored when the user reads your answer. The same token always means the same value in this conversation.
+- Tool results and earlier messages contain placeholder tokens such as [MASK_AB12CD], [NAME_IJ56KL] and [MONEY_EF34GH]. They stand for real values that are hidden from you and restored when the user reads your answer. The same token always means the same value in this conversation.
 - Use the tokens exactly as they appear when you refer to those values (e.g. "The total is [MONEY_EF34GH]"). Do not say the data is unavailable because it is a placeholder, and do not try to compute with or convert a money token: report it as it is.
-- [MASKED] marks a value you must never see; say it is hidden if asked.`
+- A token can stand for a whole record part (e.g. an address) or one item of a list: count the tokens to count the items.`
 
 const finalAnswerPrompt = "\n\nYou have used all the tool calls available for this request. Do not call any more tools: answer the user now using the tool results above, and say briefly what you could not find."
 

@@ -48,7 +48,7 @@ type Agent struct {
 	catalog  *catalog.Catalog
 	exec     *executor.Executor
 	factory  *llm.Factory
-	cls      *masking.Classifier
+	masks    masking.Resolver
 	secret   []byte
 	web      *tools.Web
 
@@ -61,10 +61,11 @@ type Agent struct {
 
 // NewAgent builds an agent from its parts.
 func NewAgent(settings *Settings, vnic ifs.IVNic, c *catalog.Catalog, factory *llm.Factory,
-	cls *masking.Classifier, secret []byte, web *tools.Web) *Agent {
+	secret []byte, web *tools.Web) *Agent {
 	return &Agent{settings: settings, vnic: vnic, catalog: c,
 		exec:    executor.New(vnic, c, settings.ToolTimeoutSeconds),
-		factory: factory, cls: cls, secret: secret, web: web,
+		factory: factory, masks: masking.RegistryResolver(vnic.Resources().Registry()),
+		secret: secret, web: web,
 		slots:   make(chan struct{}, settings.MaxConcurrentTurns),
 		running: make(map[string]bool), compacting: make(map[string]bool)}
 }

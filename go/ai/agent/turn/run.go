@@ -92,7 +92,7 @@ func (this *Agent) run(t *l8ai.ChatAgentTurn, source, aaaId string) {
 		return
 	}
 	r.tail = convctx.Tail(messages)
-	r.masker = masking.NewMasker(this.cls, this.secret, t.ConversationId)
+	r.masker = masking.NewMasker(this.masks, this.secret, t.ConversationId)
 
 	text := ""
 	mode, question := parsePrefix(lastUserText(r.tail))

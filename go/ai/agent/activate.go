@@ -24,7 +24,6 @@ import (
 
 	"github.com/saichler/l8ai/go/ai/agent/catalog"
 	"github.com/saichler/l8ai/go/ai/agent/llm"
-	"github.com/saichler/l8ai/go/ai/agent/masking"
 	"github.com/saichler/l8ai/go/ai/agent/tools"
 	"github.com/saichler/l8ai/go/ai/agent/turn"
 	aicommon "github.com/saichler/l8ai/go/ai/common"
@@ -67,8 +66,6 @@ type AgentConfig struct {
 	TrustedCAs string
 	// ServiceMap overrides or adds model → service entries of the catalog (N6).
 	ServiceMap map[string]catalog.ServiceRef
-	// MaskingOverrides overrides field classifications per model.
-	MaskingOverrides masking.OverrideFunc
 	// MaskingSecret keys the deterministic mask tokens. It must be the same on
 	// every agent instance so tokens are stable across instances; when empty a
 	// random secret is used and tokens are stable within this instance only.
@@ -124,7 +121,7 @@ func ActivateAgent(cfg AgentConfig, vnic ifs.IVNic) *turn.Agent {
 	}
 	go endpoints.ProbeAll(context.Background())
 	factory := llm.NewFactory(endpoints)
-	a := turn.NewAgent(settings, vnic, c, factory, masking.NewClassifier(cfg.MaskingOverrides), secret,
+	a := turn.NewAgent(settings, vnic, c, factory, secret,
 		tools.NewWeb(cfg.WebToolsURL, endpoints))
 
 	// Activated as stateful (DR30); the chat instances find it in the health records.
