@@ -16,11 +16,14 @@
 package turn
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/saichler/l8ai/go/ai/agent/convctx"
+	"github.com/saichler/l8ai/go/ai/agent/masking"
+	"github.com/saichler/l8ai/go/ai/agent/tools"
 	aicommon "github.com/saichler/l8ai/go/ai/common"
 	"github.com/saichler/l8ai/go/types/l8ai"
 )
@@ -129,5 +132,23 @@ func TestTantoMessagesAndNewestFirst(t *testing.T) {
 	}
 	if len(*calls) != 2 || !strings.HasPrefix((*calls)[0], "/s/new") {
 		t.Fatalf("the newest message's file is not read first: %v", *calls)
+	}
+}
+
+func TestCreateFileContentGetsTheValuesTheUserReads(t *testing.T) {
+	m := masking.NewMasker(nil, []byte("s"), "c")
+	tokened := m.MaskText("pay $1,200.00 to a@x.com")
+	input, _ := json.Marshal(map[string]interface{}{"file_name": "r.md", "content": "Report: " + tokened})
+	out := map[string]interface{}{}
+	if err := json.Unmarshal([]byte(unmaskInput(m, tools.CreateFile, string(input))), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out["content"] != "Report: pay $1,200.00 to a@x.com" || out["file_name"] != "r.md" {
+		t.Fatalf("create_file input = %v", out)
+	}
+	// Other tools keep the raw restoration.
+	raw := unmaskInput(m, tools.Query, `{"query":"select * from X where email=`+strings.Split(tokened, " to ")[1]+`"}`)
+	if !strings.Contains(raw, "email=a@x.com") {
+		t.Fatalf("query input = %s", raw)
 	}
 }

@@ -31,6 +31,7 @@ import (
 	"github.com/saichler/l8ai/go/ai/agent/schema"
 	"github.com/saichler/l8ai/go/ai/agent/tools"
 	aicommon "github.com/saichler/l8ai/go/ai/common"
+	"github.com/saichler/l8ai/go/types/l8ai"
 	"github.com/saichler/l8types/go/ifs"
 	"github.com/saichler/l8types/go/types/l8api"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -42,10 +43,15 @@ const maxListLimit = 100
 
 // Call is the per-turn context of tool calls.
 type Call struct {
-	AaaId   string
-	TurnId  string
-	Allowed map[string]bool // models the requester may access; nil allows all
+	AaaId          string
+	TurnId         string
+	ConversationId string
+	Allowed        map[string]bool // models the requester may access; nil allows all
+	// Files are the files made by export_csv and create_file, attached to
+	// the turn's answer.
+	Files   []*l8ai.ChatAttachment
 	creates int
+	files   int
 }
 
 // Executor runs data tools.
@@ -85,6 +91,10 @@ func (this *Executor) Execute(name, input string, call *Call) (string, string, e
 	case tools.DeleteRecord:
 		query, _ := args["query"].(string)
 		return this.delete(model, query, call)
+	case tools.ExportCSV:
+		return this.exportCSV(args, call)
+	case tools.CreateFile:
+		return this.createFile(args, call)
 	}
 	return "", "", errors.New("unknown tool: " + name)
 }

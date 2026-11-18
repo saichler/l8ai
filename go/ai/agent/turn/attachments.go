@@ -42,13 +42,6 @@ const (
 // downloadFunc returns a stored file's bytes.
 type downloadFunc func(storagePath, aaaId string) ([]byte, error)
 
-// RegisterFileTypes registers the FileStore download messages, so the agent
-// can decode the file store's answers.
-func RegisterFileTypes(registry ifs.IRegistry) {
-	registry.Register(&l8api.L8FileDownloadRequest{})
-	registry.Register(&l8api.L8FileDownloadResponse{})
-}
-
 // download reads a file from the FileStore service, as the user.
 func (this *Agent) download(storagePath, aaaId string) ([]byte, error) {
 	data, err := this.readFile(storagePath, aaaId)

@@ -17,6 +17,7 @@ package turn
 
 import (
 	"context"
+	"encoding/json"
 	"runtime/debug"
 
 	"github.com/saichler/l8ai/go/ai/agent/convctx"
@@ -41,6 +42,7 @@ type turnRun struct {
 	tail    []*l8ai.ChatMessage
 	masker  *masking.Masker
 	tokens  int
+	call    *executor.Call // the data tools' calls; carries the files made for the answer
 }
 
 // run is one turn (plan §7.4–7.5). A failure that the user can act on ends
@@ -135,7 +137,8 @@ func (this *Agent) answerData(ctx context.Context, r *turnRun) (string, error) {
 	req := &llm.Request{System: system, Context: convctx.SummaryContext(r.header.Summary, r.masker),
 		Messages: convctx.Messages(r.tail, r.masker, stripPrefix), Tools: tools.Data(models),
 		MaxTokens: this.settings.Chat.MaxOutputTokens}
-	call := &executor.Call{AaaId: r.aaaId, TurnId: r.turn.TurnId, Allowed: allowed}
+	call := &executor.Call{AaaId: r.aaaId, TurnId: r.turn.TurnId, ConversationId: r.turn.ConversationId, Allowed: allowed}
+	r.call = call
 	return this.toolLoop(ctx, r, req, func(name, input string) (string, string, error) {
 		return this.exec.Execute(name, input, call)
 	})
@@ -162,7 +165,7 @@ func (this *Agent) toolLoop(ctx context.Context, r *turnRun, req *llm.Request,
 				continue
 			}
 			result := llm.ToolResultContent{Type: "tool_result", ToolUseID: block.ID}
-			out, model, err := execute(block.Name, r.masker.UnmaskRaw(string(block.Input)))
+			out, model, err := execute(block.Name, unmaskInput(r.masker, block.Name, string(block.Input)))
 			if err != nil {
 				result.Content, result.IsError = "Error: "+err.Error(), true
 			} else {
@@ -210,6 +213,10 @@ func (this *Agent) reply(r *turnRun, kind l8ai.ChatMessageKind, body string) {
 	m := &l8ai.ChatMessage{MessageId: aicommon.AgentReplyMessageID(r.turn.TurnId),
 		ConversationId: r.turn.ConversationId, Kind: kind, Body: body, AgentTurnId: r.turn.TurnId,
 		LlmProfileId: r.turn.LlmProfileId, TokenCount: int32(r.tokens)}
+	// The files the turn made are attached to its answer.
+	if kind == l8ai.ChatMessageKind_CHAT_MESSAGE_KIND_AGENT && r.call != nil {
+		m.Attachments = r.call.Files
+	}
 	if err := this.vnic.Unicast(r.source, aicommon.ChatShMsgService, aicommon.ServiceArea, ifs.POST, m); err != nil {
 		this.vnic.Resources().Logger().Error("ChatAgent: reply to turn ", r.turn.TurnId, ": ", err.Error())
 	}
@@ -230,4 +237,27 @@ func truncate(text string, max int) string {
 		return text
 	}
 	return text[:max] + "...[truncated: the result is too large; refine the query, add a filter or a smaller limit]"
+}
+
+// unmaskInput restores the masked values in a tool call's input. The text of
+// a file Tanto writes gets the values as the user reads them (money formatted);
+// any other input gets the raw values.
+func unmaskInput(masker *masking.Masker, tool, input string) string {
+	if tool != tools.CreateFile {
+		return masker.UnmaskRaw(input)
+	}
+	args := map[string]interface{}{}
+	if err := json.Unmarshal([]byte(input), &args); err != nil {
+		return masker.UnmaskRaw(input)
+	}
+	for k, v := range args {
+		if s, ok := v.(string); ok {
+			args[k] = masker.Unmask(s)
+		}
+	}
+	out, err := json.Marshal(args)
+	if err != nil {
+		return masker.UnmaskRaw(input)
+	}
+	return string(out)
 }

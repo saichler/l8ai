@@ -30,7 +30,17 @@ const (
 	DeleteRecord  = "delete_record"
 	ListModules   = "list_modules"
 	DescribeModel = "describe_model"
+	ExportCSV     = "export_csv"
+	CreateFile    = "create_file"
 )
+
+const exportDescription = `Export records as a CSV file attached to your answer, for the user to download.
+
+The query selects the records (select * from <Model> [where ...] [sort-by ...]); every matching record is exported (up to 10000), so no limit is needed. You do not see the rows: you get the file name, the row count and the columns. Never type the rows into your answer.
+
+columns (optional) are the field paths to export, in order, e.g. ["deviceInfo.hostname", "deviceInfo.vendor", "deviceInfo.ipAddress"]; by default every simple field and the simple fields of sub-objects are exported.`
+
+const createFileDescription = `Attach a text file you write (a report, a summary, notes) to your answer, for the user to download. The file name's extension sets its type: .md, .txt, .csv, .json, .html. For exporting records use export_csv instead; never type records yourself.`
 
 const queryDescription = `Run an L8Query and return the matching records or aggregates.
 
@@ -84,5 +94,14 @@ func Data(models []string) []llm.Tool {
 			InputSchema: object(map[string]interface{}{})},
 		{Name: DescribeModel, Description: "List the fields of a model. Use it before writing a query.",
 			InputSchema: object(map[string]interface{}{"model": modelParam("The model")}, "model")},
+		{Name: ExportCSV, Description: exportDescription, InputSchema: object(map[string]interface{}{
+			"query":     map[string]interface{}{"type": "string", "description": "L8Query selecting the records to export"},
+			"columns":   map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Field paths to export, in order"},
+			"file_name": map[string]interface{}{"type": "string", "description": "The file name, e.g. network_devices.csv"},
+		}, "query")},
+		{Name: CreateFile, Description: createFileDescription, InputSchema: object(map[string]interface{}{
+			"file_name": map[string]interface{}{"type": "string", "description": "The file name with its extension, e.g. report.md"},
+			"content":   map[string]interface{}{"type": "string", "description": "The file's full text"},
+		}, "file_name", "content")},
 	}
 }

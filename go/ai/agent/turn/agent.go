@@ -62,7 +62,7 @@ type Agent struct {
 // NewAgent builds an agent from its parts.
 func NewAgent(settings *Settings, vnic ifs.IVNic, c *catalog.Catalog, factory *llm.Factory,
 	secret []byte, web *tools.Web) *Agent {
-	RegisterFileTypes(vnic.Resources().Registry())
+	executor.RegisterFileTypes(vnic.Resources().Registry())
 	return &Agent{settings: settings, vnic: vnic, catalog: c,
 		exec:    executor.New(vnic, c, settings.ToolTimeoutSeconds),
 		factory: factory, masks: masking.RegistryResolver(vnic.Resources().Registry()),
