@@ -17,7 +17,7 @@ cluster. Use probler's commits as the worked example:
 
 | l8agent (old) | l8ai (new) |
 |---|---|
-| one pod `<project>-agent` with its own postgres (`agentdb`), area 120: `AgntChat`, `AgntConvo`, `AgntMsg`, `AgntPrmpt` | five images, area 81: `chat-orm` (own postgres, `chatdb`), `chat` (instances), `chat-router`, `chat-users`, `chat-agent` (Tanto) |
+| one pod `<project>-agent` with its own postgres (`agentdb`), area 120: `AgntChat`, `AgntConvo`, `AgntMsg`, `AgntPrmpt` | five images, area 81: `chat-orm` (own postgres, the system config's `chatStoreConfig`, named `<project>chat`), `chat` (instances), `chat-router`, `chat-users`, `chat-agent` (Tanto) |
 | LLM from a security **credential** (`Credential(LLMCreds, key)`) | LLM from l8secure **providers and profiles** (`/79/LlmProv`, `/79/LlmProf`), selectable per conversation |
 | `L8AgentBubble` / `L8AgentBubbleMobile`, AIA section | `L8ChatBubble` / `L8ChatBubbleMobile` (l8ui `l8chat/`), no section |
 | agent ran as its own identity | Tanto runs every tool **as the requesting user** (their aaaId), so ScopeView and deny rules apply |
@@ -71,7 +71,14 @@ The security provider is a Go plugin: **after moving any framework version, rebu
    }
    ```
    `kind` is `L8_LLM_PROVIDER_KIND_ANTHROPIC` or `L8_LLM_PROVIDER_KIND_OPENAI_COMPATIBLE`. Exactly one profile is the default; the model must be listed by its provider.
-2. **Chat database credential.** Under the `postgres` credentials add `chatdb` (same shape as the old `agentdb`: `aside` = user, `yside` = port 5432, `zside` = password). chat-orm starts its own postgres with it.
+2. **Chat database.** Add a third datastore to the system config, next to `dataStoreConfig` and `timeSeriesStoreConfig`, named `<project>chat` (probler: `problerchat`, erp: `erpchat`):
+   ```json
+   "sysconfig": {
+     "chatStoreConfig": { "name": "problerchat", "type": "postgres" },
+     ...
+   }
+   ```
+   and, under the `postgres` credentials, a credential with the same name (same shape as the old `agentdb`: `aside` = user, `yside` = port 5432, `zside` = password). chat-orm starts its own postgres with them; the name is also the data directory, `/data/postgres/<project>chat`, so it must be unique to the project. Never use a bare `chatdb`: two products on the same node would share one database.
 3. **Roles.** Users who chat need GET/POST/PATCH on the chat types (`ChatConversation`, `ChatMessage`, `ChatPeer`, `ChatSync`, `ChatUserStatus`, `ChatGroup`) and GET on `L8User` (names) and `L8LlmProfile` (profile selector). A wildcard role (probler's `operator`) already covers them; a view-only role can read but not send, heartbeat or mark as read.
 4. **e2e:** add a second **writing** user (probler: `operator2`, "Second Operator", role `operator`) for the two-user chat specs.
 5. Rebuild the images: `cd l8secure && ./build-images.sh <project> amd64` (or the project's own `k8s/build-images.sh security`), then tag them under the names the project's Dockerfiles use (probler: `saichler/<project>-security:latest`, `saichler/<project>-postgres:latest`).
@@ -120,8 +127,10 @@ instance.Shutdown()
 // chat-users
 users.ActivateUsers(nil, nic)                 // .../go/ai/users
 
-// chat-orm: start the pod's postgres with the chatdb credential, then
-orm.ActivateOrm(creds, "chatdb", nic)         // .../go/ai/orm
+// chat-orm: start the pod's postgres from the system config's ChatStoreConfig
+// (/start-postgres.sh <name> <user> <pass> <port>), then
+chat := nic.Resources().SysConfig().ChatStoreConfig
+orm.ActivateOrm(chat.Type, chat.Name, nic)    // .../go/ai/orm
 
 // chat-agent (Tanto)
 agent.CallRegisterModels(res, models.Register) // before the vnic starts
