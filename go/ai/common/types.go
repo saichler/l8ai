@@ -34,4 +34,5 @@ func RegisterTypes(resources ifs.IResources) {
 	l8c.RegisterType(resources, &l8ai.ChatSync{}, &l8ai.ChatSyncList{}, "ConversationId")
 	resources.Introspector().Decorators().AddPrimaryKeyDecorator(&l8ai.ChatAgentTurn{}, "TurnId")
 	resources.Registry().Register(&l8ai.ChatAgentTurn{})
+	resources.Registry().Register(&l8ai.ChatRebalance{})
 }

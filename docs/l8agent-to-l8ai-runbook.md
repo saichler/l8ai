@@ -176,6 +176,12 @@ Ownership after a restart or crash:
 - The router never reads chat-orm. A new leader, and every instance that joins, is asked which conversations it holds (`select * from ChatConvIndex` on `ChatShCnv`, router only), and the index points at that instance.
 - An owning instance that is missing gets `ChatConfig.LostGrace` (default 15s) to come back. Only then are its conversations moved to other instances (e.g. its node is gone); the new owner loads them from chat-orm and records itself as `ownerPod`. With no instance up, the router waits and retries.
 
+Rebalancing (e.g. after adding chat replicas to relieve loaded ones):
+- Stress is relative to the other chat instances, never to a limit (the framework is platform agnostic). The router leader samples each chat instance's reported memory and CPU (its health) every `RebalanceSampleEvery` (30s) and decides every `RebalanceEvery` (2m).
+- It moves conversations only when, in each of the last `RebalanceSamples` (5) samples, the highest instance is at least `RebalanceRatio` (2x) the lowest one **and** at least the noise floor apart (`RebalanceMemFloor` 500MB, `RebalanceCpuFloor` 10 CPU points), on memory or on CPU. Uneven conversation counts alone never move anything.
+- Donors are the instances above the average, receivers the ones below it. Each donor releases up to `RebalanceBatch` (50) conversations idle at least `RebalanceIdle` (60s, no agent turn running): it stops owning them, waits one write-behind flush, writes their headers with `ownerPod=""` and drops them. The receivers load them from chat-orm, as after a lost instance. A write sent during the handoff is rejected once and resent by the browser.
+- Nothing moves while an instance is missing or a joined instance is not synced; a new instance takes part once it has 5 samples. After a move the samples restart, so the next decision sees its effect.
+
 **KIND:** load the five images in `kind-start.sh`, add them to the readiness wait, and keep the LLM `hostAliases` only when the machine is on their subnet (probler's `kind-start.sh` strips them otherwise, so the pods use the public names).
 
 ---

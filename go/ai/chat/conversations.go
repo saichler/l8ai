@@ -36,6 +36,8 @@ import (
 //     headers are loaded from chat-orm (an instance was lost) (plan §4.3).
 //   - PATCH from the router: read position, title, LLM profile, or group membership.
 //   - GET from the router: ChatConversation lists and the ChatPeer sidebar view.
+//   - DELETE from the router with a ChatRebalance: release idle conversations
+//     so they move to a less loaded instance.
 type conversationsService struct {
 	handlerBase
 }
@@ -113,7 +115,17 @@ func (this *conversationsService) PatchMessage(pb ifs.IElements, vnic ifs.IVNic,
 	return object.New(nil, &l8web.L8Empty{})
 }
 
-func (this *conversationsService) DeleteMessage(pb ifs.IElements, vnic ifs.IVNic, msg *ifs.Message) ifs.IElements {
+// DeleteMessage is the router leader rebalancing (ChatRebalance): this
+// instance releases idle conversations and answers with the released rows.
+// Conversations themselves cannot be deleted.
+func (this *conversationsService) DeleteMessage(pb ifs.IElements, vnic ifs.IVNic, msg *ifs.Message) (resp ifs.IElements) {
+	defer guard(vnic, &resp)
+	if !this.inst.fromRouter(msg) {
+		return object.NewError("chat: conversations cannot be deleted")
+	}
+	if v, ok := pb.Element().(*l8ai.ChatRebalance); ok && v != nil {
+		return this.inst.release(int(v.Count), time.Duration(v.IdleSeconds)*time.Second)
+	}
 	return object.NewError("chat: conversations cannot be deleted")
 }
 

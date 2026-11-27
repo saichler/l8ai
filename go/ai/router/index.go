@@ -92,14 +92,19 @@ func (this *Router) releaseWorker() {
 	}
 }
 
-// reassign moves the rows' conversations to the least-loaded instances: the
-// index is updated, each new owner gets its rows (it loads the headers from
-// chat-orm) and, a little later, the conversations' live registrations.
+// reassign moves the rows' conversations to the least-loaded instances.
 func (this *Router) reassign(rows []*l8ai.ChatConvIndex) {
+	this.reassignTo(rows, this.instances())
+}
+
+// reassignTo moves the rows' conversations to the least-loaded of the
+// candidates: the index is updated, each new owner gets its rows (it loads the
+// headers from chat-orm) and, a little later, the conversations' live
+// registrations.
+func (this *Router) reassignTo(rows []*l8ai.ChatConvIndex, candidates []string) {
 	if len(rows) == 0 {
 		return
 	}
-	candidates := this.instances()
 	byOwner := make(map[string][]*l8ai.ChatConvIndex)
 	updated := make([]*l8ai.ChatConvIndex, 0, len(rows))
 	now := time.Now().Unix()
@@ -245,8 +250,8 @@ func (this *Router) syncInstances(targets []string, live map[string]bool, full b
 
 // monitor runs on every replica. When a replica takes over as leader it
 // rebuilds the index from the instances (syncOwnership); the leader then
-// reassigns the conversations of instances that left and replays fan-out
-// registrations to instances that joined.
+// reassigns the conversations of instances that left, replays fan-out
+// registrations to instances that joined and rebalances (rebalance.go).
 func (this *Router) monitor() {
 	ticker := time.NewTicker(monitorEvery)
 	defer ticker.Stop()
@@ -275,6 +280,8 @@ func (this *Router) monitorTick() {
 		this.missingSince = make(map[string]time.Time)
 		this.mtx.Unlock()
 		this.pendingSync = make(map[string]bool)
+		this.samples = make(map[string][]healthSample)
+		this.lastRebalance = time.Now()
 	}
 	// Syncs only point rows at the instance that holds the conversation, so
 	// they are safe to run while new conversations are being created.
@@ -344,4 +351,5 @@ func (this *Router) monitorTick() {
 		}
 	}
 	this.known = current
+	this.rebalanceTick(current)
 }

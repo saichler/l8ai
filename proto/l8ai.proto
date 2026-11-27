@@ -180,6 +180,14 @@ message ChatConvIndexList {
   l8api.L8MetaData metadata = 2;
 }
 
+// Router -> chat instance: release up to count conversations that have been
+// idle at least idle_seconds, so they move to a less loaded instance
+// (rebalancing). The instance answers with the ChatConvIndex rows it released.
+message ChatRebalance {
+  int32 count = 1;
+  int64 idle_seconds = 2;
+}
+
 // Router: a routed live (registered) query, replayed on owner change.
 message ChatRegistration {
   string registration_id = 1;

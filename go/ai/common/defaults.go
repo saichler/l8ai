@@ -152,6 +152,19 @@ const (
 	DefaultCompactionThresholdPc = 60 // compact when summary + tail exceed this % of the budget
 	DefaultCompactionMaxTail     = 40 // or when the tail is longer than this many messages
 	DefaultVerbatimTail          = 10 // newest messages never compacted
+
+	// Rebalancing: the router leader samples every chat instance's reported
+	// memory and CPU (health) and moves idle conversations away from an
+	// instance that stays well above its peers. Stress is relative to the
+	// other chat instances, never to a limit.
+	DefaultRebalanceEvery       = 2 * time.Minute  // how often a move is considered
+	DefaultRebalanceSampleEvery = 30 * time.Second // health sample interval (the keepalive interval)
+	DefaultRebalanceSamples     = 5                // consecutive samples the imbalance must hold for
+	DefaultRebalanceRatio       = 2.0              // highest instance >= this x the lowest instance
+	DefaultRebalanceMemFloor    = 500 << 20        // and at least this many bytes apart (noise floor)
+	DefaultRebalanceCpuFloor    = 10.0             // or at least this many CPU percentage points apart
+	DefaultRebalanceBatch       = 50               // conversations a donor releases per move
+	DefaultRebalanceIdle        = 60 * time.Second // only conversations idle this long move
 )
 
 // ChatConfig carries the tunables. Start from NewChatConfig and override fields as needed.
@@ -176,6 +189,14 @@ type ChatConfig struct {
 	CompactionThresholdPc int
 	CompactionMaxTail     int
 	VerbatimTail          int
+	RebalanceEvery        time.Duration
+	RebalanceSampleEvery  time.Duration
+	RebalanceSamples      int
+	RebalanceRatio        float64
+	RebalanceMemFloor     uint64
+	RebalanceCpuFloor     float64
+	RebalanceBatch        int
+	RebalanceIdle         time.Duration
 }
 
 // NewChatConfig returns a ChatConfig holding every default.
@@ -201,5 +222,13 @@ func NewChatConfig() *ChatConfig {
 		CompactionThresholdPc: DefaultCompactionThresholdPc,
 		CompactionMaxTail:     DefaultCompactionMaxTail,
 		VerbatimTail:          DefaultVerbatimTail,
+		RebalanceEvery:        DefaultRebalanceEvery,
+		RebalanceSampleEvery:  DefaultRebalanceSampleEvery,
+		RebalanceSamples:      DefaultRebalanceSamples,
+		RebalanceRatio:        DefaultRebalanceRatio,
+		RebalanceMemFloor:     DefaultRebalanceMemFloor,
+		RebalanceCpuFloor:     DefaultRebalanceCpuFloor,
+		RebalanceBatch:        DefaultRebalanceBatch,
+		RebalanceIdle:         DefaultRebalanceIdle,
 	}
 }
