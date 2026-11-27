@@ -46,12 +46,16 @@ type Router struct {
 	wasLeader bool
 	synced    bool // leader: the index was rebuilt from the instances
 
+	missingSince map[string]time.Time // leader: when an owning instance went missing (guarded by mtx)
+	pendingSync  map[string]bool      // leader: joined instances whose conversations are not indexed yet
+
 	releases chan *l8ai.ChatConvIndex
 }
 
 func newRouter(cfg *aicommon.ChatConfig, vnic ifs.IVNic) *Router {
 	return &Router{cfg: cfg, vnic: vnic, counts: make(map[string]int), known: make(map[string]bool),
-		releasing: make(map[string]bool), releases: make(chan *l8ai.ChatConvIndex, releaseQueueSize)}
+		releasing: make(map[string]bool), releases: make(chan *l8ai.ChatConvIndex, releaseQueueSize),
+		missingSince: make(map[string]time.Time), pendingSync: make(map[string]bool)}
 }
 
 func (this *Router) isLeader() bool {

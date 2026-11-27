@@ -94,6 +94,7 @@ message ChatConversation {
   l8common.AuditInfo audit_info = 17;
   int64 notif_seq = 18;              // per-conversation notification sequence, in memory only (not persisted)
   int64 expected_summary_up_to_seq = 19; // compaction compare-and-set (agent -> owner); never stored
+  string owner_pod = 20;             // chat pod (stable pod name) that owns the conversation; it reloads its own on restart
 }
 
 message ChatConversationList {

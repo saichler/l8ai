@@ -136,8 +136,15 @@ func (this *Router) reassign(rows []*l8ai.ChatConvIndex) {
 	}()
 }
 
-// reassignLost moves every conversation of an instance that left.
+// reassignLost moves every conversation of an instance that left. With no chat
+// instance to take them it returns without forgetting the lost instance, so
+// the next monitor tick tries again once an instance is up.
 func (this *Router) reassignLost(lost string) {
+	if len(this.instances()) == 0 {
+		this.vnic.Resources().Logger().Warning("router: no chat instance to take the conversations of ", lost,
+			" yet, retrying")
+		return
+	}
 	rows := make([]*l8ai.ChatConvIndex, 0)
 	for _, v := range this.idx.Collect(func(v interface{}) (bool, interface{}) {
 		row, ok := v.(*l8ai.ChatConvIndex)
@@ -148,6 +155,7 @@ func (this *Router) reassignLost(lost string) {
 	this.mtx.Lock()
 	delete(this.counts, lost)
 	delete(this.releasing, lost)
+	delete(this.missingSince, lost)
 	this.mtx.Unlock()
 	this.vnic.Resources().Logger().Info("router: instance ", lost, " left, reassigning ", len(rows), " conversations")
 	for _, row := range rows {
@@ -159,21 +167,21 @@ func (this *Router) reassignLost(lost string) {
 // ownedQuery asks a chat instance for the conversations it holds.
 const ownedQuery = "select * from ChatConvIndex"
 
-// syncOwnership rebuilds the index from the chat instances when this replica
-// becomes the leader: every instance lists the conversations it holds and each
-// row points at the instance that holds it, so nothing moves. The router never
-// reads chat-orm: chat-orm is read and written by the chat instances only.
-// A conversation claimed by two instances keeps its indexed owner when that is
-// one of them, otherwise the first claimant in UUID order. Returns false while
-// an instance has not answered; the monitor retries and keeps what it has.
-func (this *Router) syncOwnership(instances map[string]bool) bool {
-	targets := make([]string, 0, len(instances))
-	for id := range instances {
-		targets = append(targets, id)
-	}
+// syncInstances points the index at the instances that hold the conversations:
+// each target lists the conversations it holds (ChatShCnv GET ownedQuery) and
+// its rows are updated, so nothing moves. The router never reads chat-orm:
+// chat-orm is read and written by the chat instances only.
+//
+// full is the leader takeover: every live instance is asked, and a
+// conversation goes to an instance that holds it (its indexed owner if that
+// one does, otherwise the first claimant in UUID order). Otherwise only the
+// instances that just joined are asked (a restarted chat pod that reclaimed
+// its conversations under a new UUID), and a conversation indexed to another
+// live instance stays there. Returns the targets that answered.
+func (this *Router) syncInstances(targets []string, live map[string]bool, full bool) []string {
 	sort.Strings(targets)
 	claims := make(map[string][]string) // conversationId -> claiming instances
-	complete := true
+	answered := make([]string, 0, len(targets))
 	for _, target := range targets {
 		resp := this.vnic.Request(target, aicommon.ChatShCnvService, aicommon.ServiceArea, ifs.GET, ownedQuery,
 			this.cfg.ReadTimeoutSeconds)
@@ -183,9 +191,9 @@ func (this *Router) syncOwnership(instances map[string]bool) bool {
 				reason = resp.Error().Error()
 			}
 			this.vnic.Resources().Logger().Warning("router: ownership sync: instance ", target, ": ", reason)
-			complete = false
 			continue
 		}
+		answered = append(answered, target)
 		for _, e := range resp.Elements() {
 			if row, ok := e.(*l8ai.ChatConvIndex); ok && row != nil && row.ConversationId != "" {
 				claims[row.ConversationId] = append(claims[row.ConversationId], target)
@@ -194,13 +202,24 @@ func (this *Router) syncOwnership(instances map[string]bool) bool {
 	}
 	now := time.Now().Unix()
 	rows := make([]*l8ai.ChatConvIndex, 0)
+	kept := 0
 	for conversationId, owners := range claims {
 		current := this.ownerOf(conversationId)
 		owner := owners[0]
+		heldByCurrent := false
 		for _, o := range owners {
 			if o == current {
-				owner = current
+				heldByCurrent = true
 			}
+		}
+		switch {
+		case heldByCurrent:
+			owner = current
+		case !full && current != "" && live[current]:
+			kept++
+			this.vnic.Resources().Logger().Warning("router: ownership sync: conversation ", conversationId,
+				" is indexed to live instance ", current, " and also held by ", owners[0], "; it stays with ", current)
+			continue
 		}
 		if owner != current {
 			rows = append(rows, &l8ai.ChatConvIndex{ConversationId: conversationId, OwnerUuid: owner, AssignedAt: now})
@@ -208,11 +227,20 @@ func (this *Router) syncOwnership(instances map[string]bool) bool {
 	}
 	if len(rows) > 0 {
 		this.idx.Post(object.New(nil, rows), this.vnic)
+		moved := make(map[string]string, len(rows))
+		for _, row := range rows {
+			moved[row.ConversationId] = row.OwnerUuid
+		}
+		go func() {
+			time.Sleep(replayDelay)
+			this.replayMoved(moved)
+		}()
 	}
 	this.rebuildCounts()
-	this.vnic.Resources().Logger().Info("router: ownership sync: ", len(claims), " conversations held by ",
-		len(targets), " instances, ", len(rows), " index rows updated, complete=", complete)
-	return complete
+	this.vnic.Resources().Logger().Info("router: ownership sync (full=", full, "): ", len(claims),
+		" conversations held by ", len(answered), "/", len(targets), " instances, ", len(rows),
+		" index rows updated, ", kept, " kept with another live owner")
+	return answered
 }
 
 // monitor runs on every replica. When a replica takes over as leader it
@@ -243,17 +271,67 @@ func (this *Router) monitorTick() {
 	if becameLeader {
 		this.rebuildCounts()
 		this.synced = false
+		this.mtx.Lock()
+		this.missingSince = make(map[string]time.Time)
+		this.mtx.Unlock()
+		this.pendingSync = make(map[string]bool)
 	}
-	// The sync only points rows at the instance that holds the conversation,
-	// so it is safe to run while new conversations are being created.
+	// Syncs only point rows at the instance that holds the conversation, so
+	// they are safe to run while new conversations are being created.
 	if !this.synced && len(current) > 0 {
-		this.synced = this.syncOwnership(current)
+		targets := make([]string, 0, len(current))
+		for id := range current {
+			targets = append(targets, id)
+		}
+		this.synced = len(this.syncInstances(targets, current, true)) == len(targets)
+	} else {
+		// A joining instance may be a restarted chat pod that reclaimed its
+		// conversations (ownerPod) under a new UUID: index them before the
+		// grace period of the UUID it had runs out.
+		for id := range current {
+			if !this.known[id] {
+				this.pendingSync[id] = true
+			}
+		}
+		targets := make([]string, 0, len(this.pendingSync))
+		for id := range this.pendingSync {
+			if current[id] {
+				targets = append(targets, id)
+			} else {
+				delete(this.pendingSync, id)
+			}
+		}
+		if len(targets) > 0 {
+			for _, id := range this.syncInstances(targets, current, false) {
+				delete(this.pendingSync, id)
+			}
+		}
 	}
-	this.mtx.Lock()
+	// An instance that owns conversations and is missing gets LostGrace to come
+	// back (a restarted pod reclaims its own conversations); only then are its
+	// conversations moved (e.g. its node is gone).
+	now := time.Now()
 	lost := make([]string, 0)
-	for owner := range this.counts {
-		if !current[owner] {
+	this.mtx.Lock()
+	for owner, count := range this.counts {
+		if current[owner] {
+			delete(this.missingSince, owner)
+			continue
+		}
+		since, ok := this.missingSince[owner]
+		if !ok {
+			this.missingSince[owner] = now
+			this.vnic.Resources().Logger().Info("router: instance ", owner, " is missing with ", count,
+				" conversations; they move if it is still missing after ", this.cfg.LostGrace)
+			continue
+		}
+		if now.Sub(since) >= this.cfg.LostGrace {
 			lost = append(lost, owner)
+		}
+	}
+	for owner := range this.missingSince {
+		if _, ok := this.counts[owner]; !ok {
+			delete(this.missingSince, owner) // its conversations were reclaimed by a restarted pod
 		}
 	}
 	this.mtx.Unlock()

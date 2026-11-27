@@ -49,20 +49,28 @@ func (this *conversationsService) PostMessage(pb ifs.IElements, vnic ifs.IVNic, 
 	if !this.inst.fromRouter(msg) {
 		return object.NewError("chat: conversations are accepted only from the router")
 	}
-	assignment := msg.AAAId() == ""
+	// The payload type says what it is, never the AAA id (the security
+	// provider fills an empty AAA id with the sender's alias):
+	// ChatConvIndex rows are the router moving conversations to this instance
+	// (the public ChatConv route forwards ChatConversation elements only), and
+	// a ChatConversation is always a user creating one. Each element is
+	// handled on its own, so one bad element does not drop the rest.
+	var firstErr error
 	for _, e := range pb.Elements() {
 		switch v := e.(type) {
 		case *l8ai.ChatConversation:
-			if assignment {
-				this.inst.takeOwnership(v)
-			} else if err := this.inst.createConversation(v, msg); err != nil {
-				return object.NewError(err.Error())
+			if err := this.inst.createConversation(v, msg); err != nil {
+				this.inst.vnic.Resources().Logger().Error("chat: create conversation ", v.ConversationId, ": ", err.Error())
+				if firstErr == nil {
+					firstErr = err
+				}
 			}
 		case *l8ai.ChatConvIndex:
-			if assignment {
-				this.inst.assignById(v.ConversationId)
-			}
+			this.inst.assignById(v.ConversationId)
 		}
+	}
+	if firstErr != nil {
+		return object.NewError(firstErr.Error())
 	}
 	return object.New(nil, &l8web.L8Empty{})
 }
@@ -206,7 +214,8 @@ func (this *Instance) createConversation(h *l8ai.ChatConversation, msg *ifs.Mess
 	}
 	now := time.Now().Unix()
 	header := &l8ai.ChatConversation{ConversationId: h.ConversationId, PeerKind: h.PeerKind, GroupId: h.GroupId,
-		Title: h.Title, LlmProfileId: h.LlmProfileId, CreatedBy: userId, CreatedAt: now, LastMessageAt: now}
+		Title: h.Title, LlmProfileId: h.LlmProfileId, CreatedBy: userId, CreatedAt: now, LastMessageAt: now,
+		OwnerPod: this.pod}
 	memberIds, deterministicId, err := newConversationMembers(h, userId, header)
 	if err != nil {
 		return err

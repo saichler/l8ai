@@ -35,6 +35,7 @@ import (
 type Instance struct {
 	cfg  *aicommon.ChatConfig
 	vnic ifs.IVNic
+	pod  string // stable pod name, stored as ownerPod on the conversations this instance owns
 
 	mtx   sync.RWMutex
 	convs map[string]*conversation // owned conversations by ID
@@ -56,7 +57,7 @@ type Instance struct {
 
 func newInstance(cfg *aicommon.ChatConfig, vnic ifs.IVNic) *Instance {
 	r := vnic.Resources()
-	this := &Instance{cfg: cfg, vnic: vnic, convs: make(map[string]*conversation)}
+	this := &Instance{cfg: cfg, vnic: vnic, pod: podName(), convs: make(map[string]*conversation)}
 	this.msgCache = cache.NewCache(&l8ai.ChatMessage{}, nil, nil, r)
 	this.msgCache.SetNotificationsFor(aicommon.ChatMsgService, aicommon.ServiceArea)
 	this.cnvCache = cache.NewCache(&l8ai.ChatConversation{}, nil, nil, r)

@@ -134,6 +134,7 @@ const (
 	DefaultFlushInterval         = time.Second      // write-behind flush to chat-orm
 	DefaultFlushMaxItems         = 50               // or flush as soon as this many writes are queued
 	DefaultReadTimeoutSeconds    = 3                // bounded Request for fan-out reads
+	DefaultLostGrace             = 15 * time.Second // a chat instance missing this long has its conversations moved
 	DefaultUserInfoCacheTTL      = 30 * time.Second // per-aaaId UserInfo cache on chat instances
 	DefaultNotifRetain           = 10               // notifications retained per conversation for gap fill
 	DefaultHeartbeatInterval     = 60 * time.Second // client presence heartbeat
@@ -161,6 +162,7 @@ type ChatConfig struct {
 	FlushInterval         time.Duration
 	FlushMaxItems         int
 	ReadTimeoutSeconds    int
+	LostGrace             time.Duration
 	UserInfoCacheTTL      time.Duration
 	NotifRetain           int
 	HeartbeatInterval     time.Duration
@@ -185,6 +187,7 @@ func NewChatConfig() *ChatConfig {
 		FlushInterval:         DefaultFlushInterval,
 		FlushMaxItems:         DefaultFlushMaxItems,
 		ReadTimeoutSeconds:    DefaultReadTimeoutSeconds,
+		LostGrace:             DefaultLostGrace,
 		UserInfoCacheTTL:      DefaultUserInfoCacheTTL,
 		NotifRetain:           DefaultNotifRetain,
 		HeartbeatInterval:     DefaultHeartbeatInterval,

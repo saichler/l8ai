@@ -23,9 +23,7 @@ import (
 	"strings"
 	"time"
 
-	aicommon "github.com/saichler/l8ai/go/ai/common"
 	"github.com/saichler/l8ai/go/types/l8ai"
-	"github.com/saichler/l8types/go/ifs"
 )
 
 const (
@@ -72,7 +70,12 @@ func (this *Instance) assignWorker() {
 			this.vnic.Resources().Logger().Error("chat: cannot take ownership of ", conversationId, ": ", err.Error())
 			continue
 		}
-		this.takeOwnership(header)
+		// The conversation moves to this pod: record it in chat-orm, so the
+		// pod it came from does not reclaim it when it comes back.
+		header.OwnerPod = this.pod
+		if this.takeOwnership(header) {
+			this.writer.header(conversationId)
+		}
 	}
 }
 
@@ -169,34 +172,15 @@ func memoryLimit() uint64 {
 }
 
 // Shutdown is the graceful shutdown for SIGTERM (plan §4.3): stop accepting
-// writes, flush the write-behind to chat-orm, then release the owned
-// conversations to the router, which reassigns them. A write that arrives
-// after this point is rejected and the browser resends it to the new owner.
+// writes and flush the write-behind to chat-orm. The instance keeps its
+// conversations: a pod that is restarted reclaims them by its pod name
+// (ownerPod) when it comes back, and the router only moves them if the pod
+// stays missing longer than ChatConfig.LostGrace (e.g. its node is gone).
+// A write that arrives after this point is rejected and the browser resends it.
 func (this *Instance) Shutdown() {
 	if !this.accepting.CompareAndSwap(true, false) {
 		return
 	}
 	this.writer.drain()
-	this.release()
 	this.running.Store(false)
-}
-
-// release hands the owned conversations back to the router leader. The router
-// treats a DELETE of index rows by their owner as a release (Phase 7).
-func (this *Instance) release() {
-	local := this.vnic.Resources().SysConfig().LocalUuid
-	rows := &l8ai.ChatConvIndexList{}
-	for _, c := range this.owned() {
-		c.mtx.Lock()
-		rows.List = append(rows.List, &l8ai.ChatConvIndex{ConversationId: c.header.ConversationId, OwnerUuid: local})
-		c.mtx.Unlock()
-	}
-	if len(rows.List) == 0 {
-		return
-	}
-	resp := this.vnic.LeaderRequest(aicommon.ChatIdxService, aicommon.ServiceArea, ifs.DELETE, rows.List,
-		this.cfg.ReadTimeoutSeconds)
-	if resp != nil && resp.Error() != nil {
-		this.vnic.Resources().Logger().Error("chat: release: ", resp.Error().Error())
-	}
 }

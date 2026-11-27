@@ -119,7 +119,7 @@ Each `main.go` only creates resources and the vnic and calls one `Activate`. Pro
 // chat-router
 router.ActivateRouter(nil, nic)              // github.com/saichler/l8ai/go/ai/router
 
-// chat (instances): flush and release on SIGTERM
+// chat (instances): flush on SIGTERM; a restarted pod reclaims its own conversations
 instance := chat.ActivateChat(nil, nic)       // .../go/ai/chat
 common.WaitForSignal(res)
 instance.Shutdown()
@@ -164,12 +164,17 @@ Without it, `go mod tidy` keeps the older l8types / l8utils / l8bus versions tha
 | Workload | Replicas | Notes |
 |---|---|---|
 | `<project>-chat-orm` | 1 | StatefulSet with `/data` (its postgres) |
-| `<project>-chat` | 3 | `terminationGracePeriodSeconds: 30` (flush + release on SIGTERM) |
-| `<project>-chat-router` | 2 | one leader, one standby with a full index copy |
+| `<project>-chat` | 3 | **StatefulSet in every mode** (the pod name is the owner of record, `ownerPod`, so it must survive a restart); `POD_NAME` env from `metadata.name`; `terminationGracePeriodSeconds: 30` (flush on SIGTERM) |
+| `<project>-chat-router` | 2 | one leader, one standby with a full index copy; `wait-for-chat` init container (all chat instances ready first) |
 | `<project>-chat-users` | 2 | |
 | `<project>-chat-agent` | 1–2 | `hostAliases` for LAN-only LLM / web-tools names, if any |
 
-Every workload carries the `NODE_IP` env like the project's other pods. See probler's five manifests for each mode (KIND and baremetal/sharon StatefulSets, local and GKE Deployments).
+Every workload carries the `NODE_IP` env like the project's other pods. See probler's five manifests for each mode.
+
+Ownership after a restart or crash:
+- Each conversation records its owning chat pod (`ownerPod`, the pod name). On start, a chat instance loads its own conversations from chat-orm before it activates its services, so a restarted pod takes them back and nothing moves.
+- The router never reads chat-orm. A new leader, and every instance that joins, is asked which conversations it holds (`select * from ChatConvIndex` on `ChatShCnv`, router only), and the index points at that instance.
+- An owning instance that is missing gets `ChatConfig.LostGrace` (default 15s) to come back. Only then are its conversations moved to other instances (e.g. its node is gone); the new owner loads them from chat-orm and records itself as `ownerPod`. With no instance up, the router waits and retries.
 
 **KIND:** load the five images in `kind-start.sh`, add them to the readiness wait, and keep the LLM `hostAliases` only when the machine is on their subnet (probler's `kind-start.sh` strips them otherwise, so the pods use the public names).
 
@@ -231,7 +236,7 @@ Every workload carries the `NODE_IP` env like the project's other pods. See prob
    GET  /<prefix>/81/ChatPeer   select * from ChatPeer limit 30 page 0
    ```
    (`peerKey` lists the two user IDs in ascending order.)
-3. The router logs `router: cold start assigned N conversations` after a restart (persistence works).
+3. After a restart: each chat instance logs `chat: pod <name> reclaimed N conversations`, and the router logs `router: ownership sync (full=…): N conversations held by …` (persistence works).
 4. The chat e2e specs, then the full suite. Tanto's spec asks a counting question and requires the real number.
 
 ---
@@ -244,7 +249,7 @@ Every workload carries the `NODE_IP` env like the project's other pods. See prob
 | Image builds fail with `UserInfo undefined`, `too many arguments in call to aggregator.NewAggregator` or `does not implement ifs.IVNic (wrong type for method Unicast)` | the Dockerfile has no "@latest" step, so old framework versions are mixed with the new l8ai | add the step from §5 to every Dockerfile |
 | Chat writes time out right after a deploy | the router replicas were still activating | retry after they log `chat router activated` |
 | `router: no chat instance is available` | an l8ai build older than `c46d187` (services found through `GetParticipants`, which only knows services the asking node hosts) | rebuild against current l8ai (services found through the health records) |
-| `router: cold start: … Cannot find active handler for service ChatCnvDb` | an l8ai build older than `368f9aa` (chat ORM in the shared `L8SG` group, whose leader is another ORM node) | rebuild against current l8ai (own group `ChatOrm`) |
+| `chat: reclaim from chat-orm: … Cannot find active handler for service ChatCnvDb` | an l8ai build older than `368f9aa` (chat ORM in the shared `L8SG` group, whose leader is another ORM node) | rebuild against current l8ai (own group `ChatOrm`) |
 | `security: … Nodes: onlyLeafs and onlyRoots cannot both be true` in the agent | l8secure older than `a6c4cd2` | rebuild the security image and all service images |
 | Tanto: `dial tcp <LAN ip>:443: no route to host` | `hostAliases` map the LLM to a LAN address the cluster cannot reach | drop the aliases off that LAN (probler's `kind-start.sh` does it automatically) |
 | Tanto: "I don't have access to a … model" | the agent's catalog has no entry for it | check the agent log's `catalog:` lines; the model must be registered on the agent (`CallRegisterModels` with the web server's function) and served by a service with web endpoints |

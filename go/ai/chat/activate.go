@@ -37,6 +37,9 @@ func ActivateChat(cfg *aicommon.ChatConfig, vnic ifs.IVNic) *Instance {
 	}
 	aicommon.RegisterTypes(vnic.Resources())
 	inst := newInstance(cfg, vnic)
+	// Reload this pod's own conversations before the services are activated,
+	// so the router only sees the instance once it holds them.
+	inst.reclaim()
 
 	activateService(vnic, inst, &messagesService{}, aicommon.ChatShMsgService,
 		&l8ai.ChatMessage{}, &l8ai.ChatMessageList{}, "MessageId")
