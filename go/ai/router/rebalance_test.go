@@ -115,3 +115,29 @@ func TestRebalanceCpu(t *testing.T) {
 	})
 	expect(t, d, []string{"a"}, []string{"b", "c"})
 }
+
+// A donor releases only the share by which it is above the average, so a
+// small population does not swing from one side to the other.
+func TestRebalanceShare(t *testing.T) {
+	d := run(map[string][]healthSample{
+		"a": steady(5, 600*mb, 5),
+		"b": steady(5, 600*mb, 5),
+		"c": steady(5, 60*mb, 5),
+	})
+	expect(t, d, []string{"a", "b"}, []string{"c"})
+	// average 420MB: a is 30% above it, so 6 of its 20 conversations move.
+	if got := d.share("a", 20, 50); got != 6 {
+		t.Fatalf("share of 20 conversations: %d, expected 6", got)
+	}
+	// Capped by the batch.
+	if got := d.share("a", 1000, 50); got != 50 {
+		t.Fatalf("share of 1000 conversations: %d, expected the batch (50)", got)
+	}
+	// At least one, and none from an instance that owns none.
+	if got := d.share("a", 1, 50); got != 1 {
+		t.Fatalf("share of 1 conversation: %d, expected 1", got)
+	}
+	if got := d.share("a", 0, 50); got != 0 {
+		t.Fatalf("share of 0 conversations: %d, expected 0", got)
+	}
+}

@@ -42,8 +42,9 @@ type healthSample struct {
 //     noise floor (RebalanceMemFloor / RebalanceCpuFloor) apart;
 //   - donors are the instances above the average of an imbalanced metric,
 //     receivers the ones below the average of every imbalanced metric;
-//   - each donor releases up to RebalanceBatch conversations idle at least
-//     RebalanceIdle, and they move to the least loaded receivers.
+//   - each donor releases the share of its conversations by which it is above
+//     the average (at most RebalanceBatch), idle at least RebalanceIdle, and
+//     they move to the least loaded receivers.
 //
 // Instances that are balanced, or apart by less than the noise floor, are left
 // alone, however uneven their conversation counts are. Nothing moves while an
@@ -118,8 +119,15 @@ func (this *Router) rebalance(current map[string]bool) {
 	// The donor waits one write-behind flush and a chat-orm write before it
 	// answers, so its request gets more than a read's timeout.
 	timeout := 2*this.cfg.ReadTimeoutSeconds + int(this.cfg.FlushInterval/time.Second) + 5
-	ask := &l8ai.ChatRebalance{Count: int32(this.cfg.RebalanceBatch), IdleSeconds: int64(this.cfg.RebalanceIdle / time.Second)}
 	for _, donor := range donors {
+		this.mtx.Lock()
+		owned := this.counts[donor]
+		this.mtx.Unlock()
+		count := d.share(donor, owned, this.cfg.RebalanceBatch)
+		if count == 0 {
+			continue
+		}
+		ask := &l8ai.ChatRebalance{Count: int32(count), IdleSeconds: int64(this.cfg.RebalanceIdle / time.Second)}
 		resp := this.vnic.Request(donor, aicommon.ChatShCnvService, aicommon.ServiceArea, ifs.DELETE, ask, timeout)
 		if resp == nil || resp.Error() != nil {
 			reason := "no response"
@@ -135,7 +143,8 @@ func (this *Router) rebalance(current map[string]bool) {
 				rows = append(rows, &l8ai.ChatConvIndex{ConversationId: row.ConversationId, OwnerUuid: donor})
 			}
 		}
-		log.Info("router: rebalance: instance ", donor, " released ", len(rows), " idle conversations")
+		log.Info("router: rebalance: instance ", donor, " released ", len(rows), " of the ", count,
+			" idle conversations asked (it owns ", owned, ")")
 		this.reassignTo(rows, receivers)
 	}
 	this.samples = make(map[string][]healthSample)
@@ -146,6 +155,34 @@ type decision struct {
 	memImbalanced, cpuImbalanced bool
 	donors, receivers            []string
 	avgMem, avgCpu               map[string]float64
+	allMem, allCpu               float64 // the averages over every instance
+}
+
+// share is how many of its owned conversations a donor releases: the share by
+// which it is above the average (the larger one of the imbalanced metrics),
+// at least 1 and at most batch. A fixed count would overshoot when instances
+// own few conversations: every one of them would move, and back again.
+func (this decision) share(donor string, owned, batch int) int {
+	excess := 0.0
+	if this.memImbalanced && this.avgMem[donor] > 0 {
+		excess = (this.avgMem[donor] - this.allMem) / this.avgMem[donor]
+	}
+	if this.cpuImbalanced && this.avgCpu[donor] > 0 {
+		if e := (this.avgCpu[donor] - this.allCpu) / this.avgCpu[donor]; e > excess {
+			excess = e
+		}
+	}
+	if owned <= 0 || excess <= 0 {
+		return 0
+	}
+	count := int(excess*float64(owned) + 0.5)
+	if count < 1 {
+		count = 1
+	}
+	if count > batch {
+		count = batch
+	}
+	return count
 }
 
 // decide compares the last cfg.RebalanceSamples samples of the instances (each
@@ -192,6 +229,7 @@ func decide(ids []string, samples map[string][]healthSample, cfg *aicommon.ChatC
 		allMem += d.avgMem[id] / float64(len(ids))
 		allCpu += d.avgCpu[id] / float64(len(ids))
 	}
+	d.allMem, d.allCpu = allMem, allCpu
 	for _, id := range ids {
 		above := (d.memImbalanced && d.avgMem[id] > allMem) || (d.cpuImbalanced && d.avgCpu[id] > allCpu)
 		below := (!d.memImbalanced || d.avgMem[id] < allMem) && (!d.cpuImbalanced || d.avgCpu[id] < allCpu)
