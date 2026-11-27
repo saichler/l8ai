@@ -158,8 +158,18 @@ func decide(ids []string, samples map[string][]healthSample, cfg *aicommon.ChatC
 		minMem, maxMem, minCpu, maxCpu := first.mem, first.mem, first.cpu, first.cpu
 		for _, id := range ids[1:] {
 			s := samples[id][len(samples[id])-n+i]
-			minMem, maxMem = min(minMem, s.mem), max(maxMem, s.mem)
-			minCpu, maxCpu = min(minCpu, s.cpu), max(maxCpu, s.cpu)
+			if s.mem < minMem {
+				minMem = s.mem
+			}
+			if s.mem > maxMem {
+				maxMem = s.mem
+			}
+			if s.cpu < minCpu {
+				minCpu = s.cpu
+			}
+			if s.cpu > maxCpu {
+				maxCpu = s.cpu
+			}
 		}
 		if maxMem-minMem < cfg.RebalanceMemFloor || float64(maxMem) < cfg.RebalanceRatio*float64(minMem) {
 			d.memImbalanced = false
