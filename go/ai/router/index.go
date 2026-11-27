@@ -16,7 +16,7 @@
 package router
 
 import (
-	"strconv"
+	"sort"
 	"time"
 
 	aicommon "github.com/saichler/l8ai/go/ai/common"
@@ -28,7 +28,6 @@ import (
 const (
 	releaseQueueSize = 200000
 	releaseDebounce  = 200 * time.Millisecond
-	coldStartPage    = 500
 	monitorEvery     = 5 * time.Second
 	replayDelay      = 5 * time.Second // lets a new owner load the moved headers first
 )
@@ -157,71 +156,69 @@ func (this *Router) reassignLost(lost string) {
 	this.reassign(rows)
 }
 
-// coldStart assigns every conversation in chat-orm to the instances when the
-// index is empty, sending each instance its headers in batches (plan §4.3).
-// Pages are read by key ("conversationId > last"), so no offset paging is used.
-// Returns false when chat-orm could not be read; the monitor retries.
-func (this *Router) coldStart() bool {
-	last := ""
-	total := 0
-	for {
-		query := "select * from ChatConversation"
-		if last != "" {
-			query += " where conversationId>" + last
-		}
-		query += " sort-by conversationId limit " + strconv.Itoa(coldStartPage) + " page 0"
-		elems, err := aicommon.LeaderGet(this.vnic, aicommon.ChatCnvDbService, query, this.cfg.ReadTimeoutSeconds)
-		if err != nil {
-			this.vnic.Resources().Logger().Error("router: cold start: ", err.Error())
-			return false
-		}
-		this.assignHeaders(elems)
-		for _, e := range elems {
-			if h, ok := e.(*l8ai.ChatConversation); ok && h.ConversationId > last {
-				last = h.ConversationId
-			}
-		}
-		total += len(elems)
-		if len(elems) < coldStartPage {
-			break
-		}
-	}
-	this.vnic.Resources().Logger().Info("router: cold start assigned ", total, " conversations")
-	return true
-}
+// ownedQuery asks a chat instance for the conversations it holds.
+const ownedQuery = "select * from ChatConvIndex"
 
-// assignHeaders assigns one page of headers and sends each owner its share.
-func (this *Router) assignHeaders(elems []interface{}) {
-	candidates := this.instances()
-	byOwner := make(map[string][]*l8ai.ChatConversation)
-	rows := make([]*l8ai.ChatConvIndex, 0, len(elems))
-	now := time.Now().Unix()
-	this.mtx.Lock()
-	for _, e := range elems {
-		h, ok := e.(*l8ai.ChatConversation)
-		if !ok || this.ownerOf(h.ConversationId) != "" {
+// syncOwnership rebuilds the index from the chat instances when this replica
+// becomes the leader: every instance lists the conversations it holds and each
+// row points at the instance that holds it, so nothing moves. The router never
+// reads chat-orm: chat-orm is read and written by the chat instances only.
+// A conversation claimed by two instances keeps its indexed owner when that is
+// one of them, otherwise the first claimant in UUID order. Returns false while
+// an instance has not answered; the monitor retries and keeps what it has.
+func (this *Router) syncOwnership(instances map[string]bool) bool {
+	targets := make([]string, 0, len(instances))
+	for id := range instances {
+		targets = append(targets, id)
+	}
+	sort.Strings(targets)
+	claims := make(map[string][]string) // conversationId -> claiming instances
+	complete := true
+	for _, target := range targets {
+		resp := this.vnic.Request(target, aicommon.ChatShCnvService, aicommon.ServiceArea, ifs.GET, ownedQuery,
+			this.cfg.ReadTimeoutSeconds)
+		if resp == nil || resp.Error() != nil {
+			reason := "no response"
+			if resp != nil {
+				reason = resp.Error().Error()
+			}
+			this.vnic.Resources().Logger().Warning("router: ownership sync: instance ", target, ": ", reason)
+			complete = false
 			continue
 		}
-		owner := this.leastLoaded(candidates)
-		if owner == "" {
-			break
+		for _, e := range resp.Elements() {
+			if row, ok := e.(*l8ai.ChatConvIndex); ok && row != nil && row.ConversationId != "" {
+				claims[row.ConversationId] = append(claims[row.ConversationId], target)
+			}
 		}
-		this.counts[owner]++
-		rows = append(rows, &l8ai.ChatConvIndex{ConversationId: h.ConversationId, OwnerUuid: owner, AssignedAt: now})
-		byOwner[owner] = append(byOwner[owner], h)
 	}
-	this.mtx.Unlock()
+	now := time.Now().Unix()
+	rows := make([]*l8ai.ChatConvIndex, 0)
+	for conversationId, owners := range claims {
+		current := this.ownerOf(conversationId)
+		owner := owners[0]
+		for _, o := range owners {
+			if o == current {
+				owner = current
+			}
+		}
+		if owner != current {
+			rows = append(rows, &l8ai.ChatConvIndex{ConversationId: conversationId, OwnerUuid: owner, AssignedAt: now})
+		}
+	}
 	if len(rows) > 0 {
 		this.idx.Post(object.New(nil, rows), this.vnic)
 	}
-	for owner, headers := range byOwner {
-		this.unicast(owner, aicommon.ChatShCnvService, ifs.POST, headers)
-	}
+	this.rebuildCounts()
+	this.vnic.Resources().Logger().Info("router: ownership sync: ", len(claims), " conversations held by ",
+		len(targets), " instances, ", len(rows), " index rows updated, complete=", complete)
+	return complete
 }
 
-// monitor runs on every replica. The leader rebuilds its counts when it takes
-// over, runs the cold start once, reassigns the conversations of instances
-// that left and replays fan-out registrations to instances that joined.
+// monitor runs on every replica. When a replica takes over as leader it
+// rebuilds the index from the instances (syncOwnership); the leader then
+// reassigns the conversations of instances that left and replays fan-out
+// registrations to instances that joined.
 func (this *Router) monitor() {
 	ticker := time.NewTicker(monitorEvery)
 	defer ticker.Stop()
@@ -245,11 +242,12 @@ func (this *Router) monitorTick() {
 	}
 	if becameLeader {
 		this.rebuildCounts()
+		this.synced = false
 	}
-	// The cold start skips conversations already in the index, so it is
-	// safe to run while new conversations are being created.
-	if !this.coldStarted && len(current) > 0 {
-		this.coldStarted = this.coldStart()
+	// The sync only points rows at the instance that holds the conversation,
+	// so it is safe to run while new conversations are being created.
+	if !this.synced && len(current) > 0 {
+		this.synced = this.syncOwnership(current)
 	}
 	this.mtx.Lock()
 	lost := make([]string, 0)

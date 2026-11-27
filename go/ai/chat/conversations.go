@@ -122,6 +122,12 @@ func (this *conversationsService) GetMessage(pb ifs.IElements, vnic ifs.IVNic, m
 		this.inst.cnvCache.Fetch(0, 0, q)
 		return object.New(nil, &l8web.L8Empty{})
 	}
+	// The router leader's ownership sync: the conversations this instance
+	// holds. The public ChatConv route refuses ChatConvIndex queries, so only
+	// the router's own sync reaches this.
+	if q.RootType() != nil && q.RootType().TypeName == "ChatConvIndex" {
+		return this.inst.ownedIndex()
+	}
 	userId, err := this.inst.requester(msg)
 	if err != nil {
 		return object.NewError(err.Error())
@@ -141,6 +147,21 @@ func (this *conversationsService) GetMessage(pb ifs.IElements, vnic ifs.IVNic, m
 		}
 	}
 	return object.NewQueryResult(result, metadata)
+}
+
+// ownedIndex lists the conversations this instance holds as index rows. The
+// router leader rebuilds its index from these lists when it takes over, so
+// it never reads chat-orm and nothing moves.
+func (this *Instance) ownedIndex() ifs.IElements {
+	local := this.vnic.Resources().SysConfig().LocalUuid
+	owned := this.owned()
+	rows := make([]*l8ai.ChatConvIndex, 0, len(owned))
+	for _, c := range owned {
+		c.mtx.Lock()
+		rows = append(rows, &l8ai.ChatConvIndex{ConversationId: c.header.ConversationId, OwnerUuid: local})
+		c.mtx.Unlock()
+	}
+	return object.New(nil, rows)
 }
 
 // scopedToRequester is true when the query can only match conversations of the

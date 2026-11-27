@@ -123,6 +123,11 @@ func (this *convRoute) GetMessage(pb ifs.IElements, vnic ifs.IVNic, msg *ifs.Mes
 	if err != nil {
 		return object.NewError(err.Error())
 	}
+	// The instances answer a ChatConvIndex query with every conversation they
+	// hold; only the router's ownership sync may ask it.
+	if q.RootType() != nil && q.RootType().TypeName == "ChatConvIndex" {
+		return object.NewError("router: the conversation index is internal")
+	}
 	if q.Register() == l8api.L8Register_L8_REGISTER_UNREGISTER {
 		this.r.unregister(pq, msg.AAAId(), aicommon.ChatConvService, aicommon.ChatShCnvService)
 		return accepted()

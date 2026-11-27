@@ -39,12 +39,12 @@ type Router struct {
 	idx ifs.IServiceHandlerCache // ChatIdx: conversationId → owner instance
 	reg ifs.IServiceHandlerCache // ChatReg: routed live registrations
 
-	mtx         sync.Mutex
-	counts      map[string]int  // leader: owned conversations per instance
-	known       map[string]bool // instances seen at the last monitor tick
-	releasing   map[string]bool // instances that released their conversations
-	wasLeader   bool
-	coldStarted bool
+	mtx       sync.Mutex
+	counts    map[string]int  // leader: owned conversations per instance
+	known     map[string]bool // instances seen at the last monitor tick
+	releasing map[string]bool // instances that released their conversations
+	wasLeader bool
+	synced    bool // leader: the index was rebuilt from the instances
 
 	releases chan *l8ai.ChatConvIndex
 }
