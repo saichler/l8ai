@@ -22,6 +22,14 @@ Progress (2026-11-28):
   `ChatMessageServiceHandler` is stateless (`handlerBase`), delegating to `inst.messages`. The first end-to-end test
   (`TestChatSeqAndPaging`: DM, seq, newest page oldest first, `seq<`) passes through router, chat instance,
   chat-orm on Postgres and the security plugin.
+- Phase 5.2 done: 8 end-to-end chat tests in `go/tests/ChatMessages_test.go` pass (seq and paging, header,
+  resend, append-only and router-only, membership, window and chat-orm reads incl. the write-behind, gap-fill
+  snapshot, latest-page-only push through a `websock` stub, idle eviction). The harness, like the web server,
+  stamps the session's aaaId on every query and logs each user in once. Still to cover with more pieces: a running
+  agent turn keeps the window (5.4), takeover and release (a second chat instance, 5.3).
+- Phase 5.4 unblocked: l8secure `probler.json` has a `local` LLM provider and profile (`http://127.0.0.1:19080/v1`,
+  l8secure commit `2a1c2d4`) for the tests' scripted stub LLM; the plugin was rebuilt and the local security store
+  (`/data/.probler`, seeded only when empty) moved aside so it reseeds.
 
 ## 1. Context
 

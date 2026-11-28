@@ -57,6 +57,7 @@ func startChatEnv(cfg *aicommon.ChatConfig) *chatEnv {
 	users.ActivateUsers(cfg, env.users)
 	env.instance = chat.ActivateChat(cfg, env.chat)
 	router.ActivateRouter(cfg, env.router)
+	activateWsCapture(env.client)
 	return env
 }
 
@@ -80,9 +81,10 @@ func (this *chatEnv) call(service string, action ifs.Action, body interface{}, a
 	return this.client.ProximityRequest(service, aicommon.ServiceArea, action, body, requestTimeout, aaaId)
 }
 
-// read sends an L8Query to one of the router's public chat services.
+// read sends an L8Query to one of the router's public chat services. Like
+// the web server, it stamps the session's aaaId on the query.
 func (this *chatEnv) read(service, text, aaaId string) ifs.IElements {
-	return this.call(service, ifs.GET, &l8api.L8Query{Text: text}, aaaId)
+	return this.call(service, ifs.GET, &l8api.L8Query{Text: text, AaaId: aaaId}, aaaId)
 }
 
 // createDM creates a direct conversation between two users and returns its ID.
@@ -122,4 +124,61 @@ func seqsOf(list []*l8ai.ChatMessage) []int64 {
 		result[i] = m.Seq
 	}
 	return result
+}
+
+// register reads a page with Register, so the client component registerId of
+// the session gets live pushes for what it displays.
+func (this *chatEnv) register(text, aaaId, registerId string) ifs.IElements {
+	return this.call(aicommon.ChatMsgService, ifs.GET, &l8api.L8Query{Text: text, AaaId: aaaId,
+		Register: l8api.L8Register_L8_REGISTER_REGISTER, RegisterId: registerId}, aaaId)
+}
+
+// unregister removes the client component's live registration.
+func (this *chatEnv) unregister(text, aaaId, registerId string) ifs.IElements {
+	return this.call(aicommon.ChatMsgService, ifs.GET, &l8api.L8Query{Text: text, AaaId: aaaId,
+		Register: l8api.L8Register_L8_REGISTER_UNREGISTER, RegisterId: registerId}, aaaId)
+}
+
+// direct sends a request straight to the chat instance's ChatShMsg, bypassing
+// the router.
+func (this *chatEnv) direct(action ifs.Action, body interface{}, aaaId string) ifs.IElements {
+	return this.client.Request(this.chat.Resources().SysConfig().LocalUuid, aicommon.ChatShMsgService,
+		aicommon.ServiceArea, action, body, requestTimeout, aaaId)
+}
+
+// header reads a conversation's header through the router.
+func (this *chatEnv) header(aaaId, conversationId string) *l8ai.ChatConversation {
+	resp := this.read(aicommon.ChatConvService, "select * from ChatConversation where conversationId="+conversationId, aaaId)
+	if resp == nil {
+		return nil
+	}
+	for _, e := range resp.Elements() {
+		if h, ok := e.(*l8ai.ChatConversation); ok && h != nil && h.ConversationId == conversationId {
+			return h
+		}
+	}
+	return nil
+}
+
+// failed reports whether a response is missing or carries an error.
+func failed(resp ifs.IElements) bool {
+	return resp == nil || resp.Error() != nil
+}
+
+// errOf returns a response's error text, for failure messages.
+func errOf(resp ifs.IElements) string {
+	if resp == nil {
+		return "no response"
+	}
+	if resp.Error() != nil {
+		return resp.Error().Error()
+	}
+	return "ok"
+}
+
+// capturedCount returns how many pushes the websocket stub recorded.
+func capturedCount() int {
+	captured.mtx.Lock()
+	defer captured.mtx.Unlock()
+	return len(captured.sets)
 }
