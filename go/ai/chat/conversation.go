@@ -33,10 +33,6 @@ type conversation struct {
 	mtx    sync.Mutex
 	header *l8ai.ChatConversation // authoritative header, including NotifSeq
 
-	ringIds      []string // message IDs of the ring in the message cache, ascending seq
-	ringLoaded   bool
-	ringComplete bool // the ring holds every message of the conversation
-
 	notifs   []*notification // the last NotifRetain pushes, ascending notifSeq
 	lastUsed time.Time
 

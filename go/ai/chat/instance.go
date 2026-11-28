@@ -40,14 +40,16 @@ type Instance struct {
 	mtx   sync.RWMutex
 	convs map[string]*conversation // owned conversations by ID
 
-	// msgCache holds the message ring of every owned conversation whose ring is
-	// loaded; cnvCache holds every owned header. Both carry the browsers' live
-	// registrations and produce their push notifications.
-	msgCache *cache.Cache
+	// cnvCache holds every owned header, carries the browsers' live
+	// registrations on headers and produces their push notifications.
 	cnvCache *cache.Cache
 
 	users  *aicommon.UserCache
 	writer *writeBehind
+
+	// messages is the message service handler (ChatShMsg), created with the
+	// instance: it holds the owned conversations' message windows.
+	messages *ChatMessageServiceHandler
 
 	assignQueue chan string // conversations to load from chat-orm and own
 
@@ -58,12 +60,11 @@ type Instance struct {
 func newInstance(cfg *aicommon.ChatConfig, vnic ifs.IVNic) *Instance {
 	r := vnic.Resources()
 	this := &Instance{cfg: cfg, vnic: vnic, pod: podName(), convs: make(map[string]*conversation)}
-	this.msgCache = cache.NewCache(&l8ai.ChatMessage{}, nil, nil, r)
-	this.msgCache.SetNotificationsFor(aicommon.ChatMsgService, aicommon.ServiceArea)
 	this.cnvCache = cache.NewCache(&l8ai.ChatConversation{}, nil, nil, r)
 	this.cnvCache.SetNotificationsFor(aicommon.ChatConvService, aicommon.ServiceArea)
 	this.users = aicommon.NewUserCache(cfg.UserInfoCacheTTL)
 	this.writer = newWriteBehind(this)
+	this.messages = newChatMessageServiceHandler(this)
 	this.assignQueue = make(chan string, assignQueueSize)
 	this.accepting.Store(true)
 	this.running.Store(true)
@@ -89,14 +90,24 @@ func (this *Instance) owned() []*conversation {
 }
 
 // takeOwnership makes this instance the owner of the header's conversation.
-// The notification sequence starts at 1 (plan §5.7) and the header is pushed,
-// so a browser that followed the conversation from its previous owner resets.
-// Returns false if the conversation is already owned here.
-func (this *Instance) takeOwnership(header *l8ai.ChatConversation) bool {
+// The conversation's message window is loaded first (one load path for the
+// reclaim, an assignment and a rebalance), so a new message never starts the
+// conversation without its history. The notification sequence starts at 1
+// (plan §5.7) and the header is pushed, so a browser that followed the
+// conversation from its previous owner resets. Returns false if the
+// conversation is already owned here, and the error when its window cannot be
+// loaded (it is then not owned).
+func (this *Instance) takeOwnership(header *l8ai.ChatConversation) (bool, error) {
+	if this.conversation(header.ConversationId) != nil {
+		return false, nil
+	}
+	if err := this.messages.takeOver(header); err != nil {
+		return false, err
+	}
 	this.mtx.Lock()
 	if _, ok := this.convs[header.ConversationId]; ok {
 		this.mtx.Unlock()
-		return false
+		return false, nil
 	}
 	c := newConversation(header)
 	this.convs[header.ConversationId] = c
@@ -110,7 +121,7 @@ func (this *Instance) takeOwnership(header *l8ai.ChatConversation) bool {
 		c.turn = &agentTurn{turnId: c.header.AgentTurnId, orphan: true}
 	}
 	this.publishHeader(c, true)
-	return true
+	return true, nil
 }
 
 // publishHeader advances the notification sequence, stores the header in the
@@ -133,43 +144,6 @@ func (this *Instance) publishHeader(c *conversation, isNew bool) {
 	}
 	c.retain(&notification{notifSeq: h.NotifSeq, header: h}, this.cfg.NotifRetain)
 	this.push(cn)
-}
-
-// publishMessage stores a new message in the ring, pushes it and queues it for
-// chat-orm. The caller holds c.mtx, has loaded the ring and has set Seq.
-func (this *Instance) publishMessage(c *conversation, m *l8ai.ChatMessage) {
-	c.header.NotifSeq++
-	m.NotifSeq = c.header.NotifSeq
-	_, cn, err := this.msgCache.Post(m, true)
-	if err != nil {
-		this.vnic.Resources().Logger().Error("chat: message ", m.MessageId, ": ", err.Error())
-		return
-	}
-	c.ringIds = append(c.ringIds, m.MessageId)
-	this.trimRing(c)
-	c.retain(&notification{notifSeq: m.NotifSeq, message: cloneMessage(m)}, this.cfg.NotifRetain)
-	this.push(cn)
-	this.writer.message(m)
-}
-
-// trimRing keeps at most RingSize messages in the conversation's ring. Dropped
-// messages leave the cache silently: they still exist in chat-orm.
-func (this *Instance) trimRing(c *conversation) {
-	for len(c.ringIds) > this.cfg.RingSize {
-		this.msgCache.Delete(&l8ai.ChatMessage{MessageId: c.ringIds[0]}, false)
-		c.ringIds = c.ringIds[1:]
-		c.ringComplete = false
-	}
-}
-
-// dropRing removes the conversation's ring from memory. The caller holds c.mtx.
-func (this *Instance) dropRing(c *conversation) {
-	for _, id := range c.ringIds {
-		this.msgCache.Delete(&l8ai.ChatMessage{MessageId: id}, false)
-	}
-	c.ringIds = nil
-	c.ringLoaded = false
-	c.ringComplete = false
 }
 
 // push sends a browser notification to the web servers, as BaseService does.

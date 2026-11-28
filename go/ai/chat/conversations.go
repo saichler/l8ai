@@ -242,7 +242,11 @@ func (this *Instance) createConversation(h *l8ai.ChatConversation, msg *ifs.Mess
 	for _, id := range memberIds {
 		header.Members = append(header.Members, &l8ai.ChatMember{UserId: id, JoinedAt: now})
 	}
-	if this.takeOwnership(header) {
+	taken, err := this.takeOwnership(header)
+	if err != nil {
+		return err
+	}
+	if taken {
 		this.writer.header(header.ConversationId)
 	}
 	return nil
@@ -389,13 +393,8 @@ func (this *Instance) updateGroupMembers(v *l8ai.ChatConversation, userId string
 // dropSubscriptions removes the live registrations that removed members hold
 // on the conversation's messages and header.
 func (this *Instance) dropSubscriptions(conversationId string, userIds []string) {
-	probeMsg := &l8ai.ChatMessage{ConversationId: conversationId}
 	probeHeader := &l8ai.ChatConversation{ConversationId: conversationId}
-	for _, sub := range this.msgCache.Subscribers() {
-		if user, ok := this.users.Cached(sub.AAAId); ok && contains(userIds, user) && sub.Query.Match(probeMsg) {
-			this.msgCache.UnregisterSubscription(sub.AAAId, sub.RegisterId)
-		}
-	}
+	this.messages.dropSubscribers(conversationId, userIds)
 	for _, sub := range this.cnvCache.Subscribers() {
 		if user, ok := this.users.Cached(sub.AAAId); ok && contains(userIds, user) && sub.Query.Match(probeHeader) {
 			this.cnvCache.UnregisterSubscription(sub.AAAId, sub.RegisterId)

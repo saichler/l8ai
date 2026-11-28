@@ -16,24 +16,17 @@
 package chat
 
 import (
-	"os"
-	"runtime"
-	"sort"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/saichler/l8ai/go/types/l8ai"
 )
 
 const (
-	assignWorkers      = 8
-	assignQueueSize    = 200000
-	assignAttempts     = 3
-	maintenanceEvery   = time.Minute
-	watchdogEvery      = 5 * time.Second
-	memoryGuardPercent = 80 // drop idle rings above this % of the container memory limit
-	memoryGuardDropPc  = 25 // share of the loaded rings dropped per check while above it
+	assignWorkers    = 8
+	assignQueueSize  = 200000
+	assignAttempts   = 3
+	maintenanceEvery = time.Minute
+	watchdogEvery    = 5 * time.Second
 )
 
 // assignById queues a conversation whose header must be loaded from chat-orm
@@ -73,7 +66,12 @@ func (this *Instance) assignWorker() {
 		// The conversation moves to this pod: record it in chat-orm, so the
 		// pod it came from does not reclaim it when it comes back.
 		header.OwnerPod = this.pod
-		if this.takeOwnership(header) {
+		taken, err := this.takeOwnership(header)
+		if err != nil {
+			this.vnic.Resources().Logger().Error("chat: cannot take ownership of ", conversationId, ": ", err.Error())
+			continue
+		}
+		if taken {
 			this.writer.header(conversationId)
 		}
 	}
@@ -89,7 +87,7 @@ func (this *Instance) watchdog() {
 	}
 }
 
-// maintenance evicts idle rings, applies the memory guard and purges the
+// maintenance evicts the message windows of idle conversations and purges the
 // identity cache (plan §4.3, §5.4).
 func (this *Instance) maintenance() {
 	ticker := time.NewTicker(maintenanceEvery)
@@ -97,78 +95,16 @@ func (this *Instance) maintenance() {
 	for this.running.Load() {
 		<-ticker.C
 		this.users.Purge()
-		this.evictIdleRings()
-		if overMemoryGuard() {
-			this.evictOldestRings()
+		if evicted := this.messages.evictIdle(this.cfg.RingEviction); evicted > 0 {
+			this.vnic.Resources().Logger().Info("chat: evicted the message windows of ", evicted, " idle conversations")
 		}
 	}
-}
-
-func (this *Instance) evictIdleRings() {
-	for _, c := range this.owned() {
-		c.mtx.Lock()
-		if c.ringLoaded && c.turn == nil && time.Since(c.lastUsed) > this.cfg.RingEviction {
-			this.dropRing(c)
-		}
-		c.mtx.Unlock()
-	}
-}
-
-// evictOldestRings drops the least recently used share of the loaded rings.
-func (this *Instance) evictOldestRings() {
-	loaded := make([]*conversation, 0)
-	for _, c := range this.owned() {
-		c.mtx.Lock()
-		if c.ringLoaded && c.turn == nil {
-			loaded = append(loaded, c)
-		}
-		c.mtx.Unlock()
-	}
-	sort.Slice(loaded, func(i, j int) bool { return loaded[i].lastUsedAt().Before(loaded[j].lastUsedAt()) })
-	drop := len(loaded) * memoryGuardDropPc / 100
-	if drop == 0 && len(loaded) > 0 {
-		drop = 1
-	}
-	for _, c := range loaded[:drop] {
-		c.mtx.Lock()
-		if c.turn == nil {
-			this.dropRing(c)
-		}
-		c.mtx.Unlock()
-	}
-	this.vnic.Resources().Logger().Info("chat: memory guard dropped ", drop, " rings")
 }
 
 func (this *conversation) lastUsedAt() time.Time {
 	this.mtx.Lock()
 	defer this.mtx.Unlock()
 	return this.lastUsed
-}
-
-// overMemoryGuard is true when the heap is above memoryGuardPercent of the
-// container's memory limit. Without a cgroup limit the guard is off.
-func overMemoryGuard() bool {
-	limit := memoryLimit()
-	if limit == 0 {
-		return false
-	}
-	var stats runtime.MemStats
-	runtime.ReadMemStats(&stats)
-	return stats.HeapInuse > limit/100*memoryGuardPercent
-}
-
-func memoryLimit() uint64 {
-	for _, path := range []string{"/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"} {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		v, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)
-		if err == nil && v > 0 && v < 1<<62 {
-			return v
-		}
-	}
-	return 0
 }
 
 // Shutdown is the graceful shutdown for SIGTERM (plan §4.3): stop accepting

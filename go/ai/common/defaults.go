@@ -130,7 +130,7 @@ func PeerRowID(ownerId string, peerKind int32, peerId string) string {
 const (
 	DefaultRingSize              = 50               // latest messages kept per conversation on its owner
 	DefaultPageSize              = 10               // messages per page ("load 10 older")
-	DefaultRingEviction          = 30 * time.Minute // idle time before a ring is evicted
+	DefaultRingEviction          = 24 * time.Hour   // idle time before a conversation's message window is evicted
 	DefaultFlushInterval         = time.Second      // write-behind flush to chat-orm
 	DefaultFlushMaxItems         = 50               // or flush as soon as this many writes are queued
 	DefaultReadTimeoutSeconds    = 3                // bounded Request for fan-out reads

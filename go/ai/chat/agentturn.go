@@ -119,7 +119,7 @@ func (this *Instance) endTurn(c *conversation, state l8ai.ChatAgentState) {
 // failTurn ends the current turn with a SYSTEM message. The message has the
 // turn's deterministic reply ID, so it takes the place of the reply.
 func (this *Instance) failTurn(c *conversation, body string) {
-	this.postSystemMessage(c, aicommon.AgentReplyMessageID(c.turn.turnId), body)
+	this.messages.postSystemMessage(c, aicommon.AgentReplyMessageID(c.turn.turnId), body)
 	this.endTurn(c, l8ai.ChatAgentState_CHAT_AGENT_STATE_FAILED)
 	this.publishHeader(c, false)
 }

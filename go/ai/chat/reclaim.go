@@ -41,11 +41,12 @@ func podName() string {
 }
 
 // reclaim loads, before the instance's services are activated, every
-// conversation chat-orm records as owned by this pod (ownerPod): a restarted
-// chat pod takes its own conversations back without the router moving
-// anything, and it only shows up as a participant once it holds them.
-// Pages are read by key ("conversationId > last"). chat-orm is retried until
-// it answers: an instance cannot serve without its conversations.
+// conversation chat-orm records as owned by this pod (ownerPod), with its
+// message window: a restarted chat pod takes its own conversations back
+// without the router moving anything, and it only shows up as a participant
+// once it holds them. Pages are read by key ("conversationId > last").
+// chat-orm is retried until it answers, for the headers and for each window:
+// an instance cannot serve without its conversations.
 func (this *Instance) reclaim() {
 	if this.pod == "" {
 		this.vnic.Resources().Logger().Error("chat: no pod name, conversations are not reclaimed on restart")
@@ -73,8 +74,19 @@ func (this *Instance) reclaim() {
 			if h.ConversationId > last {
 				last = h.ConversationId
 			}
-			if h.OwnerPod == this.pod && this.takeOwnership(h) {
-				total++
+			if h.OwnerPod != this.pod {
+				continue
+			}
+			for {
+				taken, err := this.takeOwnership(h)
+				if err == nil {
+					if taken {
+						total++
+					}
+					break
+				}
+				this.vnic.Resources().Logger().Warning("chat: reclaim of ", h.ConversationId, ": ", err.Error(), ", retrying")
+				time.Sleep(reclaimRetryEvery)
 			}
 		}
 		if len(elems) < reclaimPage {

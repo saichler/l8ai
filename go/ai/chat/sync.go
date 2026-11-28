@@ -16,6 +16,8 @@
 package chat
 
 import (
+	"time"
+
 	aicommon "github.com/saichler/l8ai/go/ai/common"
 	"github.com/saichler/l8ai/go/types/l8ai"
 	"github.com/saichler/l8srlz/go/serialize/object"
@@ -84,6 +86,7 @@ func (this *Instance) gapFill(conversationId, userId string, after, lastMsgSeq i
 	if !c.isMember(userId) {
 		return object.NewError("chat: not a member of the conversation")
 	}
+	c.lastUsed = time.Now()
 	reply := &l8ai.ChatSync{ConversationId: conversationId, NotifSeq: c.header.NotifSeq,
 		Conversation: cloneConversation(c.header)}
 	if after < c.header.NotifSeq && len(c.notifs) > 0 && c.notifs[0].notifSeq <= after+1 {
@@ -98,10 +101,11 @@ func (this *Instance) gapFill(conversationId, userId string, after, lastMsgSeq i
 		return object.New(nil, reply) // nothing was missed
 	}
 	reply.Snapshot = true
-	if err := this.ensureRing(c); err != nil {
+	messages, err := this.messages.messagesAfter(conversationId, lastMsgSeq, this.cfg.PageSize)
+	if err != nil {
 		return object.NewError(err.Error())
 	}
-	reply.Messages = this.messagesAfter(c, lastMsgSeq, this.cfg.PageSize)
+	reply.Messages = messages
 	return object.New(nil, reply)
 }
 

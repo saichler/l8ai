@@ -106,7 +106,7 @@ func (this *Instance) release(count int, idle time.Duration) ifs.IElements {
 	rows := make([]*l8ai.ChatConvIndex, 0, len(taken))
 	for _, c := range taken {
 		c.mtx.Lock()
-		this.dropRing(c)
+		this.messages.dropConversation(c.header.ConversationId)
 		this.cnvCache.Delete(cloneConversation(c.header), false)
 		rows = append(rows, &l8ai.ChatConvIndex{ConversationId: c.header.ConversationId, OwnerUuid: local})
 		c.mtx.Unlock()

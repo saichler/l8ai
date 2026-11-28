@@ -23,7 +23,7 @@ import (
 
 // The chat instance services receive the incoming message (F6).
 var (
-	_ ifs.IServiceMessageHandler = (*messagesService)(nil)
+	_ ifs.IServiceMessageHandler = (*ChatMessageServiceHandler)(nil)
 	_ ifs.IServiceMessageHandler = (*conversationsService)(nil)
 	_ ifs.IServiceMessageHandler = (*syncService)(nil)
 )
@@ -41,7 +41,7 @@ func ActivateChat(cfg *aicommon.ChatConfig, vnic ifs.IVNic) *Instance {
 	// so the router only sees the instance once it holds them.
 	inst.reclaim()
 
-	activateService(vnic, inst, &messagesService{}, aicommon.ChatShMsgService,
+	activateService(vnic, inst, inst.messages, aicommon.ChatShMsgService,
 		&l8ai.ChatMessage{}, &l8ai.ChatMessageList{}, "MessageId")
 	activateService(vnic, inst, &conversationsService{}, aicommon.ChatShCnvService,
 		&l8ai.ChatConversation{}, &l8ai.ChatConversationList{}, "ConversationId")
