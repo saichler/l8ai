@@ -28,8 +28,15 @@ Progress (2026-11-28):
   stamps the session's aaaId on every query and logs each user in once. Still to cover with more pieces: a running
   agent turn keeps the window (5.4), takeover and release (a second chat instance, 5.3).
 - Phase 5.4 unblocked: l8secure `probler.json` has a `local` LLM provider and profile (`http://127.0.0.1:19080/v1`,
-  l8secure commit `2a1c2d4`) for the tests' scripted stub LLM; the plugin was rebuilt and the local security store
+  l8secure commit `a28e1f0`) for the tests' scripted stub LLM; the plugin was rebuilt and the local security store
   (`/data/.probler`, seeded only when empty) moved aside so it reseeds.
+- Phase 5.4 done: 15 end-to-end agent tests in `go/tests/Agent_test.go` pass (replies, create_file, attachments,
+  free-text and field masking, aggregates, CSV export, LLM endpoint fallback, the @web gate), with a scripted stub
+  LLM, a FileStore and a test model `TestEmployee` (`proto/testtypes.proto` → `go/types/l8aitest`, served from
+  memory). **Bug found and fixed:** aggregates of masked fields reached the LLM in clear — l8ql names aggregate
+  results `sumAge`, the masker only read `sum(age)`; `masking/masker.go` now reads both. Not testable end to end
+  (decided at activation or not observable through the API): an LLM provider without a fallback, a rejected
+  fallback configuration, a running turn keeping its window from eviction.
 
 ## 1. Context
 

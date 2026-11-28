@@ -10,6 +10,8 @@ wget https://raw.githubusercontent.com/saichler/l8common/refs/heads/main/proto/l
 # Use the protoc image to run protoc.sh and generate the bindings.
 docker run --user "$(id -u):$(id -g)" -e PROTO=aimask.proto --mount type=bind,source="$PWD",target=/home/proto/ -i registry.layer-8.dev:44443/library/protoc:latest
 docker run --user "$(id -u):$(id -g)" -e PROTO=l8ai.proto --mount type=bind,source="$PWD",target=/home/proto/ -i registry.layer-8.dev:44443/library/protoc:latest
+# Test models of the end-to-end tests (go/tests).
+docker run --user "$(id -u):$(id -g)" -e PROTO=testtypes.proto --mount type=bind,source="$PWD",target=/home/proto/ -i registry.layer-8.dev:44443/library/protoc:latest
 
 rm api.proto l8common.proto
 
@@ -24,3 +26,5 @@ rm -rf *.rs
 cd ../go
 find ./types -name "*.go" -type f -exec sed -i 's|"./types/l8api"|"github.com/saichler/l8types/go/types/l8api"|g' {} +
 find ./types -name "*.go" -type f -exec sed -i 's|"./types/l8common"|"github.com/saichler/l8common/go/types/l8common"|g' {} +
+# The test models import aimask.proto (package l8ai).
+find ./types/l8aitest -name "*.go" -type f -exec sed -i 's|"./types/l8ai"|"github.com/saichler/l8ai/go/types/l8ai"|g' {} +

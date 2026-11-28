@@ -48,6 +48,7 @@ func TestMain(m *testing.M) {
 	cfg.NotifRetain = testNotifRetain
 	cfg.RingEviction = testRingEvict
 	env = startChatEnv(cfg)
+	env.startAgent(cfg)
 	sessionOp = env.login("operator", "Oper123!")
 	sessionOp2 = env.login("operator2", "Oper123!")
 	sessionViewer = env.login("viewer", "Viewer123!")

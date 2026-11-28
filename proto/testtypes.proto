@@ -1,0 +1,70 @@
+/*
+ * © 2025 Sharon Aicler (saichler@gmail.com)
+ *
+ * Layer 8 Ecosystem is licensed under the Apache License, Version 2.0.
+ * You may obtain a copy of the License at:
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// Test models for the l8ai end-to-end tests (go/tests), as l8types keeps its
+// own in testtypes: a Prime Object with (l8ai.AIMask) annotations and nested,
+// repeated and map fields, for the agent's masking and CSV export.
+
+syntax = "proto3";
+
+package l8aitest;
+
+option go_package = "./types/l8aitest";
+
+import "api.proto";
+import "aimask.proto";
+
+enum TestEmployeeStatus {
+  TEST_EMPLOYEE_STATUS_UNSPECIFIED = 0;
+  TEST_EMPLOYEE_STATUS_ACTIVE = 1;
+  TEST_EMPLOYEE_STATUS_ON_LEAVE = 2;
+}
+
+message TestMoney {
+  int64 amount = 1;
+  string currency_code = 2;
+}
+
+// Looks sensitive by name but is not annotated: it must reach the LLM as is.
+message TestDeviceInfo {
+  string hostname = 1;
+  uint32 gpu_count = 2;
+  string ssn = 3;
+}
+
+message TestContact {
+  string kind = 1;
+  string value = 2 [(l8ai.AIMask) = true];
+}
+
+// Prime Object.
+message TestEmployee {
+  string employee_id = 1;
+  string name = 2;
+  string national_id = 3 [(l8ai.AIMask) = true];
+  TestMoney salary = 4 [(l8ai.AIMask) = true];
+  TestDeviceInfo device_info = 5;
+  repeated string emails = 6 [(l8ai.AIMask) = true];
+  map<string, TestContact> contacts = 7;
+  TestMoney bonus = 8;
+  int64 age = 9 [(l8ai.AIMask) = true];
+  TestEmployeeStatus status = 10;
+  repeated string tags = 11;
+}
+
+message TestEmployeeList {
+  repeated TestEmployee list = 1;
+  l8api.L8MetaData metadata = 2;
+}

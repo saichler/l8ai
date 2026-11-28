@@ -270,11 +270,25 @@ func fieldOf(md protoreflect.MessageDescriptor, key string) protoreflect.FieldDe
 	return fields.ByName(protoreflect.Name(key))
 }
 
-// aggregateField returns the field path of an aggregate key ("sum(a.b)" →
-// "a.b"), or the key itself.
+// aggregateFunctions are the aggregate functions of the query language
+// (l8ql), whose results it names "<function><Field>": sum(age) → "sumAge",
+// sum(salary.amount) → "sumSalary.amount".
+var aggregateFunctions = []string{"count", "sum", "avg", "min", "max"}
+
+// aggregateField returns the field path of an aggregate key, or the key
+// itself. Both forms are read: the expression ("sum(a.b)" → "a.b") and the
+// result name the query language gives it ("sumA.b" → "a.b"). pathMasked
+// matches names case-insensitively, so the capital the alias adds is fine.
 func aggregateField(key string) string {
 	if m := aggregateRegex.FindStringSubmatch(key); m != nil {
 		return m[1]
+	}
+	for _, fn := range aggregateFunctions {
+		if len(key) > len(fn) && strings.HasPrefix(key, fn) {
+			if c := key[len(fn)]; c >= 'A' && c <= 'Z' {
+				return key[len(fn):]
+			}
+		}
 	}
 	return key
 }
