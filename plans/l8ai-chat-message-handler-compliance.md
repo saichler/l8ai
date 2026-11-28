@@ -9,9 +9,19 @@ Progress (2026-11-28):
 - Phase 3 file sizes: `messageservicehandler.go` 98, `messagewrite.go` 209, `messageread.go` 265, `messageload.go`
   198, `messagesubscriptions.go` 146.
 - Phase 5 started: `go/tests/TestInit.go` (l8test topology) is written; `go/vendor.sh` was run at the user's
-  instruction and l8test is vendored (build, vet and tests green against the refreshed modules). **Still needed:**
-  a local test Postgres for the chat-orm services (l8orm's own tests use one at 127.0.0.1 with the security
-  provider's credentials; none is running on this host).
+  instruction and l8test is vendored (build, vet and tests green against the refreshed modules). Environment:
+  `/var/loader.so` rebuilt from current l8secure with the probler config (the March build no longer matched the
+  `ISecurityProvider` interface and crashed every topology; likely the cause of B3); a test Postgres in Docker
+  (`l8test-postgres`) with the probler chat-store credentials, on 127.0.0.1 and the host's LAN address (the chat
+  ORM connects to the LAN address).
+- **Bug found by the first end-to-end test, in `9d770f6`:** the service manager activates a new object of the
+  handler's type (`Registry().NewOf(sla.ServiceHandlerInstance())`), not the object in the SLA. Phase 2 had the
+  instance create the handler and register that object, so the activated handler failed its own check and the
+  service manager panicked (a chat pod would crash-loop). Fixed as the old code did it: the state is a
+  `messageStore` owned by `Instance` (created in `newInstance`, so the reclaim still loads into it), and
+  `ChatMessageServiceHandler` is stateless (`handlerBase`), delegating to `inst.messages`. The first end-to-end test
+  (`TestChatSeqAndPaging`: DM, seq, newest page oldest first, `seq<`) passes through router, chat instance,
+  chat-orm on Postgres and the security plugin.
 
 ## 1. Context
 

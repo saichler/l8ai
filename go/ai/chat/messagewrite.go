@@ -29,7 +29,7 @@ import (
 // PostMessage handles a create: a user's message from the router (plan §5.2),
 // or Tanto's reply from a ChatAgent instance (plan §7.1). Requests from any
 // other node are rejected.
-func (this *ChatMessageServiceHandler) PostMessage(pb ifs.IElements, vnic ifs.IVNic, msg *ifs.Message) (resp ifs.IElements) {
+func (this *messageStore) postMessage(pb ifs.IElements, vnic ifs.IVNic, msg *ifs.Message) (resp ifs.IElements) {
 	defer guard(vnic, &resp)
 	fromAgent := this.inst.fromAgent(msg)
 	if !fromAgent && !this.inst.fromRouter(msg) {
@@ -57,7 +57,7 @@ func (this *ChatMessageServiceHandler) PostMessage(pb ifs.IElements, vnic ifs.IV
 // postUserMessage appends a user's message (plan §5.2 step 4). The server
 // sets the sender, the time and the seq; a resend of an accepted message is a
 // no-op. In a conversation with Tanto, the message starts (or queues) a turn.
-func (this *ChatMessageServiceHandler) postUserMessage(m *l8ai.ChatMessage, msg *ifs.Message) error {
+func (this *messageStore) postUserMessage(m *l8ai.ChatMessage, msg *ifs.Message) error {
 	if !this.inst.accepting.Load() {
 		return errors.New("chat: instance is shutting down")
 	}
@@ -110,7 +110,7 @@ func (this *ChatMessageServiceHandler) postUserMessage(m *l8ai.ChatMessage, msg 
 
 // postAgentMessage appends Tanto's reply (or the agent's SYSTEM message) to
 // the conversation's current turn and ends the turn (plan §7.1 step 3).
-func (this *ChatMessageServiceHandler) postAgentMessage(m *l8ai.ChatMessage) error {
+func (this *messageStore) postAgentMessage(m *l8ai.ChatMessage) error {
 	if !this.inst.accepting.Load() {
 		return errors.New("chat: instance is shutting down")
 	}
@@ -141,7 +141,7 @@ func (this *ChatMessageServiceHandler) postAgentMessage(m *l8ai.ChatMessage) err
 
 // publishMessage records a new message, pushes it to the browsers subscribed
 // to its conversation and queues it for chat-orm. The caller holds c.mtx.
-func (this *ChatMessageServiceHandler) publishMessage(c *conversation, m *l8ai.ChatMessage) {
+func (this *messageStore) publishMessage(c *conversation, m *l8ai.ChatMessage) {
 	this.record(c, m, this.inst.cfg.NotifRetain)
 	this.push(m)
 	this.persist(m)
@@ -155,7 +155,7 @@ func (this *ChatMessageServiceHandler) publishMessage(c *conversation, m *l8ai.C
 // is retained for the gap fill (plan §5.7). The caller holds c.mtx, so a
 // conversation's messages are added in seq order. Every accepted write marks
 // the conversation used, for the rebalance and the idle eviction.
-func (this *ChatMessageServiceHandler) record(c *conversation, m *l8ai.ChatMessage, retain int) {
+func (this *messageStore) record(c *conversation, m *l8ai.ChatMessage, retain int) {
 	m.Seq = c.header.LastSeq + 1
 	c.header.NotifSeq++
 	m.NotifSeq = c.header.NotifSeq
@@ -176,7 +176,7 @@ func (this *ChatMessageServiceHandler) record(c *conversation, m *l8ai.ChatMessa
 // a turn fails (Instance.failTurn). It has the turn's reply ID, so it takes
 // the place of the reply; a second one for the same turn is a no-op. The
 // caller holds c.mtx and publishes the header afterwards.
-func (this *ChatMessageServiceHandler) postSystemMessage(c *conversation, messageId, body string) {
+func (this *messageStore) postSystemMessage(c *conversation, messageId, body string) {
 	if this.hasMessage(c.header.ConversationId, messageId) {
 		return
 	}
@@ -187,7 +187,7 @@ func (this *ChatMessageServiceHandler) postSystemMessage(c *conversation, messag
 
 // hasMessage reports whether the conversation's window holds the message. A
 // resend is of a recent message, so the window is searched newest first.
-func (this *ChatMessageServiceHandler) hasMessage(conversationId, messageId string) bool {
+func (this *messageStore) hasMessage(conversationId, messageId string) bool {
 	this.mtx.RLock()
 	defer this.mtx.RUnlock()
 	w := this.conversations[conversationId]
@@ -204,6 +204,6 @@ func (this *ChatMessageServiceHandler) hasMessage(conversationId, messageId stri
 
 // persist queues a new message for chat-orm on the instance's write-behind,
 // which sends a clone and flushes what it holds on a graceful shutdown.
-func (this *ChatMessageServiceHandler) persist(m *l8ai.ChatMessage) {
+func (this *messageStore) persist(m *l8ai.ChatMessage) {
 	this.inst.writer.message(m)
 }

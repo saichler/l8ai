@@ -26,8 +26,8 @@ import (
 )
 
 // messageWindow is a conversation's latest messages held in memory: at most
-// the handler's window size (RingSize), in seq order. Older messages are read
-// from chat-orm. Every field is guarded by the handler's mtx.
+// the store's window size (RingSize), in seq order. Older messages are read
+// from chat-orm. Every field is guarded by the store's mtx.
 type messageWindow struct {
 	messages []*l8ai.ChatMessage
 	// complete is true when the window holds the whole conversation.
@@ -39,7 +39,7 @@ type messageWindow struct {
 }
 
 // add appends a new message and drops the oldest past size. The slice is
-// shifted in place: readers copy what they need under the handler's lock.
+// shifted in place: readers copy what they need under the store's lock.
 func (this *messageWindow) add(m *l8ai.ChatMessage, size int) {
 	this.messages = append(this.messages, m)
 	if drop := len(this.messages) - size; drop > 0 {
@@ -81,7 +81,7 @@ func (this *messageWindow) merge(read []*l8ai.ChatMessage, complete bool, size i
 // loaded: on a take-over, at start-up, and on the first read after an idle
 // eviction. The caller holds the conversation's lock (or the conversation is
 // not owned yet), so no new message is added while the window loads.
-func (this *ChatMessageServiceHandler) ensureLoaded(conversationId string) error {
+func (this *messageStore) ensureLoaded(conversationId string) error {
 	this.mtx.RLock()
 	w := this.conversations[conversationId]
 	loaded := w != nil && w.loaded
@@ -108,7 +108,7 @@ func (this *ChatMessageServiceHandler) ensureLoaded(conversationId string) error
 // window (loaded when it was taken over), so a missing one is an error, not
 // something to load and serve quietly; a window evicted for idleness is
 // reloaded (Phase 1.8 of the plan). The caller holds the conversation's lock.
-func (this *ChatMessageServiceHandler) reload(conversationId string) error {
+func (this *messageStore) reload(conversationId string) error {
 	this.mtx.RLock()
 	w := this.conversations[conversationId]
 	this.mtx.RUnlock()
@@ -123,7 +123,7 @@ func (this *ChatMessageServiceHandler) reload(conversationId string) error {
 // readLatest reads the conversation's latest window-size messages from
 // chat-orm, in seq order. complete is true when that is the whole
 // conversation (fewer than a window, or the oldest is seq 1).
-func (this *ChatMessageServiceHandler) readLatest(conversationId string) ([]*l8ai.ChatMessage, bool, error) {
+func (this *messageStore) readLatest(conversationId string) ([]*l8ai.ChatMessage, bool, error) {
 	query := "select * from ChatMessage where conversationId=" + conversationId +
 		" sort-by seq descending limit " + strconv.Itoa(this.size) + " page 0"
 	elems, err := aicommon.LeaderGet(this.inst.vnic, aicommon.ChatMsgDbService, query, this.inst.cfg.ReadTimeoutSeconds)
@@ -146,7 +146,7 @@ func (this *ChatMessageServiceHandler) readLatest(conversationId string) ([]*l8a
 // is owned, a new message could arrive and start the conversation without its
 // history. A conversation without messages yet (LastSeq 0) is held as an
 // empty, complete window without a read.
-func (this *ChatMessageServiceHandler) takeOver(header *l8ai.ChatConversation) error {
+func (this *messageStore) takeOver(header *l8ai.ChatConversation) error {
 	if header.LastSeq == 0 {
 		this.mtx.Lock()
 		if _, ok := this.conversations[header.ConversationId]; !ok {
@@ -162,7 +162,7 @@ func (this *ChatMessageServiceHandler) takeOver(header *l8ai.ChatConversation) e
 // running and no read or write for longer than idle. The conversation stays
 // owned (header, members, subscriptions); its next read reloads the window.
 // Returns the number of windows evicted.
-func (this *ChatMessageServiceHandler) evictIdle(idle time.Duration) int {
+func (this *messageStore) evictIdle(idle time.Duration) int {
 	evicted := 0
 	for _, c := range this.inst.owned() {
 		c.mtx.Lock()
@@ -181,7 +181,7 @@ func (this *ChatMessageServiceHandler) evictIdle(idle time.Duration) int {
 
 // dropConversation removes a conversation that left this instance (a
 // rebalance): its window and its subscriptions.
-func (this *ChatMessageServiceHandler) dropConversation(conversationId string) {
+func (this *messageStore) dropConversation(conversationId string) {
 	this.mtx.Lock()
 	delete(this.conversations, conversationId)
 	this.mtx.Unlock()
@@ -190,7 +190,7 @@ func (this *ChatMessageServiceHandler) dropConversation(conversationId string) {
 
 // dropSubscribers removes the conversation's subscriptions whose session
 // belongs to one of the users, e.g. members removed from the conversation.
-func (this *ChatMessageServiceHandler) dropSubscribers(conversationId string, userIds []string) {
+func (this *messageStore) dropSubscribers(conversationId string, userIds []string) {
 	this.subs.dropMatching(conversationId, func(aaaId string) bool {
 		user, ok := this.inst.users.Cached(aaaId)
 		return ok && contains(userIds, user)

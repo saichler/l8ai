@@ -147,11 +147,11 @@ func subscriptionKey(aaaId, registerId string) string {
 // is dropped by l8web, never broadcast).
 //
 // Building this client notification is the message store's job. LiveUpdates
-// asks for the cache-built cn; the store is explicit in this handler, so the
-// handler builds it. That is the accepted deviation of plan
+// asks for the cache-built cn; the store is explicit in l8ai, so it
+// builds it. That is the accepted deviation of plan
 // l8ai-chat-message-handler-compliance.md (D2 (a)), and it moves into TCache
 // (l8utils) with the store, which will build and return the cn like Cache.
-func (this *ChatMessageServiceHandler) push(m *l8ai.ChatMessage) {
+func (this *messageStore) push(m *l8ai.ChatMessage) {
 	aaaIds := this.subs.latestAaaIds(m.ConversationId)
 	if len(aaaIds) == 0 {
 		return

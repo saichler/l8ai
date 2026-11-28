@@ -106,7 +106,7 @@ func TestSeqWindowThenPage(t *testing.T) {
 // seq, continuing from the header (e.g. a conversation reloaded with 40
 // messages), keeps each conversation in seq order and moves the header.
 func TestRecordAssignsSeq(t *testing.T) {
-	h := &ChatMessageServiceHandler{}
+	h := &messageStore{}
 	h.init(50)
 	a := newConversation(&l8ai.ChatConversation{ConversationId: "a",
 		Members: []*l8ai.ChatMember{{UserId: "u1"}}})
@@ -181,7 +181,7 @@ func TestMessageSubscriptions(t *testing.T) {
 
 // The gap fill's snapshot is the newest limit messages after lastMsgSeq.
 func TestMessagesAfter(t *testing.T) {
-	h := &ChatMessageServiceHandler{handlerBase: handlerBase{inst: &Instance{}}}
+	h := &messageStore{inst: &Instance{}}
 	h.init(50)
 	h.conversations["a"] = &messageWindow{messages: seqs(25), complete: true, loaded: true}
 	got, err := h.messagesAfter("a", 10, 5)
@@ -202,7 +202,7 @@ func TestMessagesAfter(t *testing.T) {
 // from chat-orm on its first read); a released one leaves with its
 // subscriptions; removed members lose theirs.
 func TestTakeOverAndDrop(t *testing.T) {
-	h := &ChatMessageServiceHandler{handlerBase: handlerBase{inst: &Instance{}}}
+	h := &messageStore{inst: &Instance{}}
 	h.init(50)
 	if err := h.takeOver(&l8ai.ChatConversation{ConversationId: "new"}); err != nil {
 		t.Fatal(err)

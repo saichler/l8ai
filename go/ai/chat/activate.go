@@ -41,7 +41,7 @@ func ActivateChat(cfg *aicommon.ChatConfig, vnic ifs.IVNic) *Instance {
 	// so the router only sees the instance once it holds them.
 	inst.reclaim()
 
-	activateService(vnic, inst, inst.messages, aicommon.ChatShMsgService,
+	activateService(vnic, inst, &ChatMessageServiceHandler{}, aicommon.ChatShMsgService,
 		&l8ai.ChatMessage{}, &l8ai.ChatMessageList{}, "MessageId")
 	activateService(vnic, inst, &conversationsService{}, aicommon.ChatShCnvService,
 		&l8ai.ChatConversation{}, &l8ai.ChatConversationList{}, "ConversationId")

@@ -47,9 +47,10 @@ type Instance struct {
 	users  *aicommon.UserCache
 	writer *writeBehind
 
-	// messages is the message service handler (ChatShMsg), created with the
-	// instance: it holds the owned conversations' message windows.
-	messages *ChatMessageServiceHandler
+	// messages is the message store, created with the instance: the owned
+	// conversations' message windows and the browsers' subscriptions on them.
+	// ChatShMsg (ChatMessageServiceHandler) serves it.
+	messages *messageStore
 
 	assignQueue chan string // conversations to load from chat-orm and own
 
@@ -64,7 +65,7 @@ func newInstance(cfg *aicommon.ChatConfig, vnic ifs.IVNic) *Instance {
 	this.cnvCache.SetNotificationsFor(aicommon.ChatConvService, aicommon.ServiceArea)
 	this.users = aicommon.NewUserCache(cfg.UserInfoCacheTTL)
 	this.writer = newWriteBehind(this)
-	this.messages = newChatMessageServiceHandler(this)
+	this.messages = newMessageStore(this)
 	this.assignQueue = make(chan string, assignQueueSize)
 	this.accepting.Store(true)
 	this.running.Store(true)

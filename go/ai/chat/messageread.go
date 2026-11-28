@@ -43,7 +43,7 @@ const ormReadPage = 500
 // A read with Register subscribes the client component to the conversation's
 // new messages; an unregister (e.g. sent when the browser's websocket
 // closes) carries no conversation, removes the subscription and reads nothing.
-func (this *ChatMessageServiceHandler) GetMessage(pb ifs.IElements, vnic ifs.IVNic, msg *ifs.Message) (resp ifs.IElements) {
+func (this *messageStore) getMessage(pb ifs.IElements, vnic ifs.IVNic, msg *ifs.Message) (resp ifs.IElements) {
 	defer guard(vnic, &resp)
 	if !this.inst.fromRouter(msg) {
 		return object.NewError("chat: reads are accepted only from the router")
@@ -100,7 +100,7 @@ func (this *ChatMessageServiceHandler) GetMessage(pb ifs.IElements, vnic ifs.IVN
 
 // messagesAfter returns up to limit of the newest messages with seq > after,
 // in seq order: the gap fill's snapshot (plan §5.7). The caller holds c.mtx.
-func (this *ChatMessageServiceHandler) messagesAfter(conversationId string, after int64, limit int) ([]*l8ai.ChatMessage, error) {
+func (this *messageStore) messagesAfter(conversationId string, after int64, limit int) ([]*l8ai.ChatMessage, error) {
 	if err := this.reload(conversationId); err != nil {
 		return nil, err
 	}
@@ -126,7 +126,7 @@ func (this *ChatMessageServiceHandler) messagesAfter(conversationId string, afte
 // the whole requested page. Otherwise chat-orm supplies only what is older
 // than the window: chat-orm gets new messages through the write-behind, so
 // its newest messages may be only in the window.
-func (this *ChatMessageServiceHandler) page(conversationId string, bounds seqBounds, page, limit int) ([]*l8ai.ChatMessage, error) {
+func (this *messageStore) page(conversationId string, bounds seqBounds, page, limit int) ([]*l8ai.ChatMessage, error) {
 	if page < 0 {
 		page = 0
 	}
@@ -162,7 +162,7 @@ func (this *ChatMessageServiceHandler) page(conversationId string, bounds seqBou
 // readOlder reads from chat-orm the messages inside the bounds that are older
 // than the window (seq < oldest, when the window holds any): the newest want
 // of them, or all of them when the read is not limited. Returned in seq order.
-func (this *ChatMessageServiceHandler) readOlder(conversationId string, bounds seqBounds, oldest int64, want int, limited bool) ([]*l8ai.ChatMessage, error) {
+func (this *messageStore) readOlder(conversationId string, bounds seqBounds, oldest int64, want int, limited bool) ([]*l8ai.ChatMessage, error) {
 	clauses := ""
 	if bounds.hasAfter {
 		clauses += " and seq>" + strconv.FormatInt(bounds.after, 10)

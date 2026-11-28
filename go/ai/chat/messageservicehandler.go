@@ -16,71 +16,35 @@
 package chat
 
 import (
-	"errors"
 	"sync"
 
 	"github.com/saichler/l8srlz/go/serialize/object"
 	"github.com/saichler/l8types/go/ifs"
 )
 
-// ChatMessageServiceHandler is ChatShMsg, the chat message service, with its
-// own, explicit store of ChatMessage: immutable time series elements whose
-// only order is time. Each owned conversation has a window of its latest
-// messages; older ones are read from chat-orm. It is the base from which
-// BaseTimeSDataService (l8services) and TCache (l8utils) will be abstracted.
-//
-// Locks: a conversation's lock (c.mtx) is taken before the handler's lock
-// (mtx), never the other way around. mtx guards the conversations map and
-// the windows and is held briefly, so writes to different conversations do
-// not wait on each other.
+// ChatMessageServiceHandler is ChatShMsg, the chat message service. Like every
+// chat instance service it holds no state: the service manager activates a new
+// object of its type (Registry().NewOf), so the state lives on the shared
+// Instance, in its messageStore, and the handler reaches it through the
+// instance it finds in the SLA arguments (handlerBase).
 type ChatMessageServiceHandler struct {
-	// handlerBase holds the shared chat instance (the conversations: header,
-	// members, agent turn) and the IServiceHandler methods every chat instance
-	// service shares.
 	handlerBase
-	mtx *sync.RWMutex
-	// conversations holds each conversation's window of latest messages, by
-	// conversation ID.
-	conversations map[string]*messageWindow
-	// size is the window size: the latest messages kept per conversation
-	// (ChatConfig.RingSize).
-	size int
-	// subs are the browsers' live registrations on conversation threads.
-	subs *messageSubscriptions
-	// notifySequence numbers the pushes this handler creates.
-	notifySequence uint32
 }
 
-// newChatMessageServiceHandler creates the instance's message handler. The
-// instance creates it with itself, so the reclaim at start-up already loads
-// the owned conversations' windows through it, before the services are
-// activated.
-func newChatMessageServiceHandler(inst *Instance) *ChatMessageServiceHandler {
-	this := &ChatMessageServiceHandler{}
-	this.inst = inst
-	this.init(inst.cfg.RingSize)
-	return this
-}
-
-// Activate checks that the SLA activates the instance's own message handler:
-// the instance and the service must share one store of message windows.
+// Activate finds the chat instance in the SLA arguments.
 func (this *ChatMessageServiceHandler) Activate(sla *ifs.ServiceLevelAgreement, vnic ifs.IVNic) error {
-	inst := this.inst
-	if err := this.activate(sla); err != nil {
-		return err
-	}
-	if this.inst != inst || this.inst.messages != this {
-		return errors.New("chat message service activated with a handler that is not its instance's")
-	}
-	return nil
+	return this.activate(sla)
 }
 
-// init creates the lock, the conversations map and the subscriptions.
-func (this *ChatMessageServiceHandler) init(size int) {
-	this.mtx = &sync.RWMutex{}
-	this.conversations = make(map[string]*messageWindow)
-	this.size = size
-	this.subs = newMessageSubscriptions()
+// PostMessage handles a create: a user's message from the router, or Tanto's
+// reply from a ChatAgent instance.
+func (this *ChatMessageServiceHandler) PostMessage(pb ifs.IElements, vnic ifs.IVNic, msg *ifs.Message) ifs.IElements {
+	return this.inst.messages.postMessage(pb, vnic, msg)
+}
+
+// GetMessage handles a read from the router.
+func (this *ChatMessageServiceHandler) GetMessage(pb ifs.IElements, vnic ifs.IVNic, msg *ifs.Message) ifs.IElements {
+	return this.inst.messages.getMessage(pb, vnic, msg)
 }
 
 // PutMessage, PatchMessage and DeleteMessage are rejected: messages are
@@ -95,4 +59,48 @@ func (this *ChatMessageServiceHandler) PatchMessage(pb ifs.IElements, vnic ifs.I
 
 func (this *ChatMessageServiceHandler) DeleteMessage(pb ifs.IElements, vnic ifs.IVNic, msg *ifs.Message) ifs.IElements {
 	return object.NewError("chat: messages are append-only")
+}
+
+// messageStore is the chat instance's explicit store of ChatMessage: immutable
+// time series elements whose only order is time. Each owned conversation has a
+// window of its latest messages; older ones are read from chat-orm. It is the
+// base from which BaseTimeSDataService (l8services) and TCache (l8utils) will
+// be abstracted.
+//
+// Locks: a conversation's lock (c.mtx) is taken before the store's lock (mtx),
+// never the other way around. mtx guards the conversations map and the windows
+// and is held briefly, so writes to different conversations do not wait on
+// each other.
+type messageStore struct {
+	// inst is the chat instance that owns the store and the conversations
+	// (header, members, agent turn).
+	inst *Instance
+	mtx  *sync.RWMutex
+	// conversations holds each conversation's window of latest messages, by
+	// conversation ID.
+	conversations map[string]*messageWindow
+	// size is the window size: the latest messages kept per conversation
+	// (ChatConfig.RingSize).
+	size int
+	// subs are the browsers' live registrations on conversation threads.
+	subs *messageSubscriptions
+	// notifySequence numbers the pushes this store creates.
+	notifySequence uint32
+}
+
+// newMessageStore creates the instance's message store. The instance creates
+// it with itself, so the reclaim at start-up already loads the owned
+// conversations' windows into it, before the services are activated.
+func newMessageStore(inst *Instance) *messageStore {
+	this := &messageStore{inst: inst}
+	this.init(inst.cfg.RingSize)
+	return this
+}
+
+// init creates the lock, the conversations map and the subscriptions.
+func (this *messageStore) init(size int) {
+	this.mtx = &sync.RWMutex{}
+	this.conversations = make(map[string]*messageWindow)
+	this.size = size
+	this.subs = newMessageSubscriptions()
 }
